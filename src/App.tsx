@@ -26,7 +26,7 @@ function App() {
   }, [signedIn])
   if (!signedIn) return <Login onLogin={() => setSignedIn(true)} />
   const filteredPatients = recentPatients.filter((patient) => `${patient.name} ${patient.id} ${patient.complaint}`.toLowerCase().includes(query.toLowerCase()))
-  const pageTitle = view === 'Overview' ? 'Good morning, Dr. Okafor' : view
+  const pageTitle = view === 'Overview' ? 'Good morning, Dr Alfred' : view
   const pageDescription = view === 'Overview' ? "Here's what's happening across your hospital today." : `Manage ${view.toLowerCase()} with a clear view of today's activity.`
 
   return (
