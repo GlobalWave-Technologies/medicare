@@ -18,7 +18,7 @@ function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [showPatientForm, setShowPatientForm] = useState(false)
   const [query, setQuery] = useState('')
-  const [signedIn, setSignedIn] = useState(true)
+  const [signedIn, setSignedIn] = useState(false)
   if (!signedIn) return <Login onLogin={() => setSignedIn(true)} />
   const filteredPatients = recentPatients.filter((patient) => `${patient.name} ${patient.id} ${patient.complaint}`.toLowerCase().includes(query.toLowerCase()))
   const pageTitle = view === 'Overview' ? 'Good morning, Dr. Okafor' : view
