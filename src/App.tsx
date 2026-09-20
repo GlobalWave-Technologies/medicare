@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Activity, ArrowUpRight, Bell, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ClipboardList,
   Clock3, Download, FileText, HeartPulse, LayoutDashboard, Menu, MoreHorizontal,
@@ -19,6 +19,11 @@ function App() {
   const [showPatientForm, setShowPatientForm] = useState(false)
   const [query, setQuery] = useState('')
   const [signedIn, setSignedIn] = useState(false)
+  useEffect(() => {
+    if (!signedIn) return
+    const logoutTimer = window.setTimeout(() => setSignedIn(false), 60_000)
+    return () => window.clearTimeout(logoutTimer)
+  }, [signedIn])
   if (!signedIn) return <Login onLogin={() => setSignedIn(true)} />
   const filteredPatients = recentPatients.filter((patient) => `${patient.name} ${patient.id} ${patient.complaint}`.toLowerCase().includes(query.toLowerCase()))
   const pageTitle = view === 'Overview' ? 'Good morning, Dr. Okafor' : view
