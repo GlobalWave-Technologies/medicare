@@ -7,11 +7,34 @@ import {
 import './App.css'
 
 const complaints = ['Abdominal Pain', 'Allergic Reaction', 'Asthmatic Attack', 'Boils/Rashes/Itches', 'Burns', 'Chest Pains', 'Chills', 'Cold/Running Nose', 'Coughs', 'Diarrhoea', 'Earache', 'Fever', 'General Body Pain', 'Headache', 'Heartburns', 'Lightheadedness', 'Menstrual Pain', 'Neck Pain', 'Sore Throat', 'Stomach Ache', 'Ulcer', 'Wounds', 'Other']
-const navItems = [{ label: 'Overview', icon: LayoutDashboard }, { label: 'Patients', icon: UsersRound }, { label: 'Appointments', icon: CalendarDays }, { label: 'Medical records', icon: FileText }, { label: 'Reports', icon: ClipboardList }]
+type Role = 'Admin' | 'Records Officer' | 'Doctor in Charge'
+type View = 'Overview' | 'Patients' | 'Appointments' | 'Medical records' | 'Reports' | 'Notifications'
+
+const roles: Role[] = ['Admin', 'Records Officer', 'Doctor in Charge']
+const navItemsByRole: Record<Role, Array<{ label: View; icon: typeof LayoutDashboard }>> = {
+  Admin: [{ label: 'Overview', icon: LayoutDashboard }, { label: 'Patients', icon: UsersRound }, { label: 'Medical records', icon: FileText }, { label: 'Reports', icon: ClipboardList }, { label: 'Notifications', icon: Bell }],
+  'Records Officer': [{ label: 'Patients', icon: UsersRound }, { label: 'Medical records', icon: FileText }, { label: 'Notifications', icon: Bell }],
+  'Doctor in Charge': [{ label: 'Overview', icon: LayoutDashboard }, { label: 'Patients', icon: UsersRound }, { label: 'Medical records', icon: FileText }, { label: 'Notifications', icon: Bell }],
+}
+const roleLabels: Record<Role, string> = {
+  Admin: 'Administrator',
+  'Records Officer': 'Records Officer',
+  'Doctor in Charge': 'Doctor in Charge',
+}
 const appointments = [{ time: '09:00', name: 'Amina Yusuf', detail: 'Follow-up consultation', color: 'mint', initials: 'AY' }, { time: '10:30', name: 'Marcus Johnson', detail: 'General body pain', color: 'gold', initials: 'MJ' }, { time: '11:15', name: 'Sofia Martins', detail: 'Routine check-up', color: 'lilac', initials: 'SM' }, { time: '13:00', name: 'Daniel Kim', detail: 'Chest pains', color: 'rose', initials: 'DK' }]
 const recentPatients = [{ id: 'PT-2048', name: 'Amina Yusuf', age: '28 yrs', complaint: 'Allergic Reaction', status: 'Active', seen: 'Today, 08:42', initials: 'AY', color: 'mint' }, { id: 'PT-2047', name: 'Marcus Johnson', age: '45 yrs', complaint: 'General Body Pain', status: 'Active', seen: 'Today, 08:15', initials: 'MJ', color: 'gold' }, { id: 'PT-2046', name: 'Sofia Martins', age: '32 yrs', complaint: 'Headache', status: 'Pending', seen: 'Yesterday, 16:20', initials: 'SM', color: 'lilac' }, { id: 'PT-2045', name: 'Daniel Kim', age: '51 yrs', complaint: 'Chest Pains', status: 'Active', seen: 'Yesterday, 14:08', initials: 'DK', color: 'rose' }]
 const medicalRecords = [{ patient: 'Amina Yusuf', recordId: 'MR-7842', visit: 'Today, 08:42', diagnosis: 'Allergic Reaction', clinician: 'Dr. Okafor', status: 'Reviewed', color: 'mint', initials: 'AY' }, { patient: 'Marcus Johnson', recordId: 'MR-7841', visit: 'Today, 08:15', diagnosis: 'General Body Pain', clinician: 'Dr. Okafor', status: 'Reviewed', color: 'gold', initials: 'MJ' }, { patient: 'Sofia Martins', recordId: 'MR-7839', visit: 'Yesterday, 16:20', diagnosis: 'Headache', clinician: 'Dr. Bello', status: 'Pending', color: 'lilac', initials: 'SM' }, { patient: 'Daniel Kim', recordId: 'MR-7836', visit: 'Yesterday, 14:08', diagnosis: 'Chest Pains', clinician: 'Dr. Mensah', status: 'Reviewed', color: 'rose', initials: 'DK' }]
-type View = 'Overview' | 'Patients' | 'Appointments' | 'Medical records' | 'Reports'
+
+type Broadcast = { id: number; title: string; message: string; audience: string; createdAt: string }
+const defaultBroadcasts: Broadcast[] = [
+  { id: 1, title: 'Staff briefing', message: 'Please review all checked-in patients before 10:00 AM.', audience: 'All Records Officers', createdAt: '08:30 AM' },
+  { id: 2, title: 'Bed update', message: 'Ward 3 is now ready for new admissions.', audience: 'All Records Officers', createdAt: '09:05 AM' },
+]
+
+const statusMeaning: Record<string, string> = {
+  Active: 'Currently admitted or receiving consultation/care in the facility',
+  Pending: 'Checked in and waiting in queue for doctor consultation or triage',
+}
 
 function App() {
   const [view, setView] = useState<View>('Overview')
@@ -20,20 +43,63 @@ function App() {
   const [showAppointmentForm, setShowAppointmentForm] = useState(false)
   const [query, setQuery] = useState('')
   const [signedIn, setSignedIn] = useState(false)
+  const [role, setRole] = useState<Role>('Admin')
+  const [broadcasts, setBroadcasts] = useState<Broadcast[]>(defaultBroadcasts)
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false)
 
   useEffect(() => {
     if (!signedIn) return
-    const logoutTimer = window.setTimeout(() => setSignedIn(false), 60_000)
-    return () => window.clearTimeout(logoutTimer)
+    const validViews = navItemsByRole[role]
+    if (!validViews.some((item) => item.label === view)) {
+      setView(validViews[0].label)
+    }
+  }, [role, signedIn, view])
+
+  useEffect(() => {
+    if (!signedIn) return
+    let logoutTimer: number | undefined
+    const resetTimer = () => {
+      window.clearTimeout(logoutTimer)
+      logoutTimer = window.setTimeout(() => setSignedIn(false), 20 * 60 * 1000)
+    }
+
+    const handleUserActivity = () => resetTimer()
+    window.addEventListener('mousemove', handleUserActivity)
+    window.addEventListener('keydown', handleUserActivity)
+    window.addEventListener('click', handleUserActivity)
+    window.addEventListener('touchstart', handleUserActivity)
+    resetTimer()
+
+    return () => {
+      window.clearTimeout(logoutTimer)
+      window.removeEventListener('mousemove', handleUserActivity)
+      window.removeEventListener('keydown', handleUserActivity)
+      window.removeEventListener('click', handleUserActivity)
+      window.removeEventListener('touchstart', handleUserActivity)
+    }
   }, [signedIn])
 
-  if (!signedIn) return <Login onLogin={() => setSignedIn(true)} />
+  if (!signedIn) return <Login onLogin={(selectedRole) => { setRole(selectedRole); setSignedIn(true) }} />
 
   const filteredPatients = recentPatients.filter((patient) => `${patient.name} ${patient.id} ${patient.complaint}`.toLowerCase().includes(query.toLowerCase()))
-  const pageTitle = view === 'Overview' ? 'Good morning, Dr Alfred' : view
-  const pageDescription = view === 'Overview' ? "Here's what's happening across your hospital today." : `Manage ${view.toLowerCase()} with a clear view of today's activity.`
-  const showExportReportButton = view === 'Reports'
-  const showAddPatientButton = view !== 'Reports'
+  const pageTitle = role === 'Admin' ? 'Good morning, Admin' : role === 'Records Officer' ? 'Good morning, Records Officer' : 'Good morning, Doctor in Charge'
+  const pageDescription = role === 'Admin' ? "Here's what's happening across your hospital today." : role === 'Records Officer' ? 'Monitor patient logging, records access, and urgent notifications.' : 'Review high-level care metrics and key clinical operations.'
+  const showExportReportButton = view === 'Reports' && role === 'Admin'
+  const showAddPatientButton = role !== 'Doctor in Charge' || view !== 'Reports'
+  const navItems = navItemsByRole[role]
+
+  const handleBroadcast = (message: string) => {
+    if (!message.trim()) return
+    setBroadcasts((current) => [{
+      id: Date.now(),
+      title: 'Admin broadcast',
+      message: message.trim(),
+      audience: 'All Records Officers',
+      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }, ...current])
+    setView('Notifications')
+    setShowBroadcastModal(false)
+  }
 
   return (
     <div className="app-shell">
@@ -45,16 +111,17 @@ function App() {
         <div className="workspace-label">WORKSPACE</div>
         <nav>
           {navItems.map(({ label, icon: Icon }) => (
-            <button key={label} className={view === label ? 'active' : ''} onClick={() => { setView(label as View); setIsMenuOpen(false) }}>
+            <button key={label} className={view === label ? 'active' : ''} onClick={() => { setView(label); setIsMenuOpen(false) }}>
               <Icon size={18} />
               <span>{label}</span>
               {label === 'Appointments' && <b>8</b>}
+              {label === 'Notifications' && <b>3</b>}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="workspace-label">SYSTEM</div>
-          <button><Settings size={18} /><span>Settings</span></button>
+          {role === 'Admin' && <button><Settings size={18} /><span>Settings</span></button>}
           <div className="security-note">
             <ShieldCheck size={18} />
             <div><strong>System protected</strong><span>Last backup 18 min ago</span></div>
@@ -69,8 +136,8 @@ function App() {
           <div className="topbar-actions">
             <button className="icon-btn notification"><Bell size={19} /><i /></button>
             <button className="profile" onClick={() => setSignedIn(false)}>
-              <div className="avatar avatar-blue">DO</div>
-              <div className="profile-copy"><strong>Dr. Adaeze Okafor</strong><span>Administrator</span></div>
+              <div className="avatar avatar-blue">{role === 'Admin' ? 'AD' : role === 'Records Officer' ? 'RO' : 'DC'}</div>
+              <div className="profile-copy"><strong>{role === 'Admin' ? 'Dr. Adaeze Okafor' : role === 'Records Officer' ? 'Tina Okon' : 'Dr. Alfred Eke'}</strong><span>{roleLabels[role]}</span></div>
               <ChevronDown size={16} />
             </button>
           </div>
@@ -84,6 +151,7 @@ function App() {
               <p className="subheading">{pageDescription}</p>
             </div>
             <div className="heading-actions">
+              {role === 'Admin' && <button className="button button-ghost" onClick={() => setShowBroadcastModal(true)}><Bell size={16} /> Broadcast alert</button>}
               {showExportReportButton && <button className="button button-ghost"><Download size={16} /> Export report</button>}
               {showAddPatientButton && <button className="button button-primary" onClick={() => setShowPatientForm(true)}><Plus size={18} /> Add patient</button>}
             </div>
@@ -94,9 +162,11 @@ function App() {
           {view === 'Appointments' && <Appointments onBook={() => setShowAppointmentForm(true)} />}
           {view === 'Medical records' && <Records />}
           {view === 'Reports' && <Reports />}
+          {view === 'Notifications' && <Notifications broadcasts={broadcasts} />}
 
           {showPatientForm && <PatientModal onClose={() => setShowPatientForm(false)} />}
           {showAppointmentForm && <AppointmentModal onClose={() => setShowAppointmentForm(false)} />}
+          {showBroadcastModal && <BroadcastModal onClose={() => setShowBroadcastModal(false)} onSend={handleBroadcast} />}
         </section>
       </main>
     </div>
@@ -218,6 +288,16 @@ function Patients({ query, setQuery, patients, onAdd }: { query: string; setQuer
         </div>
         <button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add patient</button>
       </div>
+      <div className="status-summary">
+        <div className="status-row">
+          <span className="status active">Active</span>
+          <small>Currently admitted or receiving care/consultation</small>
+        </div>
+        <div className="status-row">
+          <span className="status pending">Pending</span>
+          <small>Checked in and waiting in queue for doctor consultation or triage</small>
+        </div>
+      </div>
       <div className="table-tools">
         <label className="search-box"><Search size={17} /><input value={query} onChange={(event) => { setQuery(event.target.value); setCurrentPage(1) }} placeholder="Search by name or symptoms..." /></label>
         <button className="select-button">All statuses <ChevronDown size={15} /></button>
@@ -229,7 +309,7 @@ function Patients({ query, setQuery, patients, onAdd }: { query: string; setQuer
             <div className="patient-name"><div className={`avatar avatar-${patient.color}`}>{patient.initials}</div><strong>{patient.name}</strong></div>
             <span>{patient.age}</span>
             <span>{patient.complaint}</span>
-            <span><em className={`status ${patient.status.toLowerCase()}`}>{patient.status}</em></span>
+            <span title={statusMeaning[patient.status] ?? patient.status}><em className={`status ${patient.status.toLowerCase()}`}>{patient.status}</em></span>
             <button className="more-button"><MoreHorizontal size={18} /></button>
           </div>
         ))}
@@ -288,7 +368,7 @@ function Records() {
             <span>{record.visit}</span>
             <span>{record.diagnosis}</span>
             <span>{record.clinician}</span>
-            <span><em className={`status ${record.status.toLowerCase()}`}>{record.status}</em></span>
+            <span title={statusMeaning[record.status] ?? record.status}><em className={`status ${record.status.toLowerCase()}`}>{record.status}</em></span>
             <button className="more-button"><MoreHorizontal size={18} /></button>
           </div>
         ))}
@@ -331,6 +411,31 @@ function Reports() {
         <ReportCard title="Appointment summary" detail="Bookings, cancellations and attendance trends" date="Updated today" />
         <ReportCard title="Chief complaint breakdown" detail="Visit reasons filtered by date range" date="Updated yesterday" />
         <ReportCard title="Staff activity log" detail="User sign-ins and protected actions" date="Updated 18 min ago" />
+      </div>
+    </section>
+  )
+}
+
+function Notifications({ broadcasts }: { broadcasts: Broadcast[] }) {
+  return (
+    <section className="panel page-panel">
+      <div className="panel-header">
+        <div>
+          <h2>Notifications</h2>
+          <p>Latest updates from the hospital workspace</p>
+        </div>
+      </div>
+      <div className="activity-list">
+        {broadcasts.map((broadcast) => (
+          <div key={broadcast.id} className="activity-item">
+            <div className="activity-icon blue"><Bell size={16} /></div>
+            <div>
+              <strong>{broadcast.title}</strong>
+              <span>{broadcast.message}</span>
+              <small>{broadcast.audience} · {broadcast.createdAt}</small>
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   )
@@ -386,6 +491,13 @@ function ActivityItem({ icon: Icon, text, by, time, color }: { icon: typeof User
 function PatientModal({ onClose }: { onClose: () => void }) {
   const [receivedBy, setReceivedBy] = useState('')
   const [personnelName, setPersonnelName] = useState('')
+  const [selectedComplaints, setSelectedComplaints] = useState<string[]>([])
+
+  const toggleComplaint = (complaint: string) => {
+    setSelectedComplaints((current) => current.includes(complaint)
+      ? current.filter((item) => item !== complaint)
+      : [...current, complaint])
+  }
 
   const handleSave = () => {
     const record = {
@@ -412,18 +524,29 @@ function PatientModal({ onClose }: { onClose: () => void }) {
           <button className="icon-btn" onClick={onClose}><X size={19} /></button>
         </div>
         <div className="form-grid">
-          <label>First name<input placeholder="e.g. Amina" /></label>
-          <label>Last name<input placeholder="e.g. Yusuf" /></label>
-          <label>Date of birth<input type="date" /></label>
-          <label>Phone number<input placeholder="+234 800 000 0000" /></label>
-          <label className="wide">Personnel name<input value={personnelName} onChange={(event) => setPersonnelName(event.target.value)} placeholder="Enter personnel name" /></label>
           <label className="wide attended-field">
             Attended / Received By
-            <input value={receivedBy} onChange={(event) => setReceivedBy(event.target.value)} placeholder="e.g. Jane Doe or JD" />
+            <input value={receivedBy} onChange={(event) => setReceivedBy(event.target.value)} placeholder="Enter full name or initials" />
             <small className="field-helper">Enter your staff details.</small>
             <button type="button" className="button button-primary save-inline" onClick={handleSave}>Save</button>
           </label>
-          <label className="wide">Reason for visit<select defaultValue=""><option value="" disabled>Select chief complaint</option>{complaints.map((complaint) => <option key={complaint}>{complaint}</option>)}</select></label>
+          <label>First name<input placeholder="e.g. Amina" /></label>
+          <label>Last name<input placeholder="e.g. Yusuf" /></label>
+          <label>Room number<input placeholder="e.g. Ward 3 / Room 12" /></label>
+          <label>Phone number<input placeholder="+234 800 000 0000" /></label>
+          <label className="wide">Personnel name<input value={personnelName} onChange={(event) => setPersonnelName(event.target.value)} placeholder="Enter personnel name" /></label>
+          <div className="wide complaint-picker">
+            <label>Chief complaint</label>
+            <div className="complaint-options">
+              {complaints.map((complaint) => (
+                <label key={complaint} className="complaint-option">
+                  <input type="checkbox" checked={selectedComplaints.includes(complaint)} onChange={() => toggleComplaint(complaint)} />
+                  <span>{complaint}</span>
+                </label>
+              ))}
+            </div>
+            {selectedComplaints.length > 0 && <small className="field-helper">Selected: {selectedComplaints.join(', ')}</small>}
+          </div>
           <label className="wide">Medical history summary<textarea placeholder="Add a brief summary for the care team..." /></label>
         </div>
         <div className="modal-footer">
@@ -459,8 +582,9 @@ function AppointmentModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-function Login({ onLogin }: { onLogin: () => void }) {
+function Login({ onLogin }: { onLogin: (role: Role) => void }) {
   const [showCreateAccount, setShowCreateAccount] = useState(false)
+  const [selectedRole, setSelectedRole] = useState<Role>('Admin')
 
   if (showCreateAccount) return <Signup onBack={() => setShowCreateAccount(false)} />
 
@@ -489,9 +613,10 @@ function Login({ onLogin }: { onLogin: () => void }) {
           <p className="eyebrow">WELCOME BACK</p>
           <h2>Sign in to your workspace</h2>
           <p className="login-helper">Use your hospital email to continue.</p>
-          <form onSubmit={(event) => { event.preventDefault(); onLogin() }}>
+          <form onSubmit={(event) => { event.preventDefault(); onLogin(selectedRole) }}>
             <label>Email address<input type="email" placeholder="you@hospital.com" defaultValue="admin@hospital.com" /></label>
             <label>Password<div className="password-input"><input type="password" placeholder="Enter your password" defaultValue="password" /><span>Show</span></div></label>
+            <label>Role<select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value as Role)}><option value="Admin">Admin</option><option value="Records Officer">Records Officer</option><option value="Doctor in Charge">Doctor in Charge</option></select></label>
             <div className="form-options">
               <label className="check-label"><input type="checkbox" defaultChecked /> Keep me signed in</label>
               <a href="#reset">Forgot password?</a>
@@ -508,6 +633,30 @@ function Login({ onLogin }: { onLogin: () => void }) {
           </div>
         </div>
         <div className="login-copyright">© 2026 Hospital Records System <span>·</span> Privacy & security</div>
+      </div>
+    </div>
+  )
+}
+
+function BroadcastModal({ onClose, onSend }: { onClose: () => void; onSend: (message: string) => void }) {
+  const [message, setMessage] = useState('')
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div><p className="eyebrow">ADMIN BROADCAST</p><h2>Send alert to Records Officers</h2></div>
+          <button className="icon-btn" onClick={onClose}><X size={19} /></button>
+        </div>
+
+        <div className="form-grid">
+          <label className="wide">Message<textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Write a message to all Records Officers..." rows={5} /></label>
+        </div>
+
+        <div className="modal-footer">
+          <button className="button button-ghost" onClick={onClose}>Cancel</button>
+          <button className="button button-primary" onClick={() => onSend(message)}>Send broadcast</button>
+        </div>
       </div>
     </div>
   )
@@ -544,7 +693,7 @@ function Signup({ onBack }: { onBack: () => void }) {
               <label>Last name<input placeholder="Yusuf" required /></label>
             </div>
             <label>Hospital email<input type="email" placeholder="you@hospital.com" required /></label>
-            <label>Role<select defaultValue=""><option value="" disabled>Select your role</option><option>Receptionist</option><option>Nurse</option><option>Records officer</option><option>Doctor</option></select></label>
+            <label>Role<select defaultValue=""><option value="" disabled>Select your role</option>{roles.map((role) => <option key={role}>{role}</option>)}</select></label>
             <label>Password<input type="password" placeholder="At least 8 characters" minLength={8} required /></label>
             <button className="button button-primary login-button">Request access <ArrowUpRight size={17} /></button>
           </form>
