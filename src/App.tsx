@@ -612,8 +612,6 @@ function ActivityItem({ icon: Icon, text, by, time, color }: { icon: typeof User
 }
 
 function PatientModal({ onClose }: { onClose: () => void }) {
-  const [receivedBy, setReceivedBy] = useState('')
-  const [personnelName, setPersonnelName] = useState('')
   const [selectedComplaints, setSelectedComplaints] = useState<string[]>([])
 
   const toggleComplaint = (complaint: string) => {
@@ -622,10 +620,18 @@ function PatientModal({ onClose }: { onClose: () => void }) {
       : [...current, complaint])
   }
 
-  const handleSave = () => {
+  const handleSave = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const values = new FormData(event.currentTarget)
     const record = {
-      receivedBy: receivedBy.trim() || 'Not provided',
-      personnelName: personnelName.trim() || 'Not provided',
+      receivedBy: String(values.get('receivedBy') ?? '').trim() || 'Not provided',
+      firstName: String(values.get('firstName') ?? '').trim(),
+      lastName: String(values.get('lastName') ?? '').trim(),
+      roomNumber: String(values.get('roomNumber') ?? '').trim(),
+      phoneNumber: String(values.get('phoneNumber') ?? '').trim(),
+      personnelName: String(values.get('personnelName') ?? '').trim() || 'Not provided',
+      chiefComplaints: selectedComplaints,
+      medicalHistory: String(values.get('medicalHistory') ?? '').trim(),
       savedAt: new Date().toISOString(),
     }
 
@@ -646,35 +652,37 @@ function PatientModal({ onClose }: { onClose: () => void }) {
           <div><p className="eyebrow">PATIENT REGISTRATION</p><h2>Add a new patient</h2></div>
           <button className="icon-btn" onClick={onClose}><X size={19} /></button>
         </div>
-        <div className="form-grid">
+        <form className="patient-form" onSubmit={handleSave}>
+          <div className="form-grid">
           <label className="wide attended-field">
             Attended / Received By
-            <input value={receivedBy} onChange={(event) => setReceivedBy(event.target.value)} placeholder="Enter full name or initials" />
+            <input name="receivedBy" placeholder="Enter full name or initials" />
             <small className="field-helper">Enter your staff details.</small>
-            <button type="button" className="button button-primary save-inline" onClick={handleSave}>Save</button>
           </label>
-          <label>First name<input placeholder="e.g. Amina" /></label>
-          <label>Last name<input placeholder="e.g. Yusuf" /></label>
-          <label>Room number<input placeholder="e.g. Ward 3 / Room 12" /></label>
-          <label>Phone number<input placeholder="+234 800 000 0000" /></label>
-          <label className="wide">Personnel name<input value={personnelName} onChange={(event) => setPersonnelName(event.target.value)} placeholder="Enter personnel name" /></label>
+          <label>First name<input name="firstName" placeholder="e.g. Amina" /></label>
+          <label>Last name<input name="lastName" placeholder="e.g. Yusuf" /></label>
+          <label>Room number<input name="roomNumber" placeholder="e.g. Ward 3 / Room 12" /></label>
+          <label>Phone number<input name="phoneNumber" type="tel" placeholder="+234 800 000 0000" /></label>
+          <label className="wide">Personnel name<input name="personnelName" placeholder="Enter personnel name" /></label>
           <div className="wide complaint-picker">
             <label>Chief complaint</label>
             <div className="complaint-options">
               {complaints.map((complaint) => (
                 <label key={complaint} className="complaint-option">
-                  <input type="checkbox" checked={selectedComplaints.includes(complaint)} onChange={() => toggleComplaint(complaint)} />
+                  <input type="checkbox" name="chiefComplaint" value={complaint} checked={selectedComplaints.includes(complaint)} onChange={() => toggleComplaint(complaint)} />
                   <span>{complaint}</span>
                 </label>
               ))}
             </div>
             {selectedComplaints.length > 0 && <small className="field-helper">Selected: {selectedComplaints.join(', ')}</small>}
           </div>
-          <label className="wide">Medical history summary<textarea placeholder="Add a brief summary for the care team..." /></label>
-        </div>
-        <div className="modal-footer">
-          <button className="button button-ghost" onClick={onClose}>Cancel</button>
-        </div>
+          <label className="wide">Medical history summary<textarea name="medicalHistory" placeholder="Add a brief summary for the care team..." /></label>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="button button-ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="button button-primary"><Plus size={17} /> Save patient</button>
+          </div>
+        </form>
       </div>
     </div>
   )

@@ -1479,3 +1479,168 @@ nav button.active svg{filter:drop-shadow(0 3px 4px rgba(249,115,22,.20))}
     flex-direction: column;
   }
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.modal {
+  width: min(100%, 640px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 72px rgba(17, 24, 39, 0.24);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: var(--deep);
+  font: 700 20px/1.25 Manrope, sans-serif;
+}
+
+.patient-form .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.patient-form .form-grid > .wide {
+  grid-column: 1 / -1;
+}
+
+.patient-form .form-grid > label,
+.patient-form .complaint-picker > label:first-child {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: #526f7c;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.patient-form .attended-field {
+  gap: 8px;
+}
+
+.patient-form .form-grid input:not([type='checkbox']),
+.patient-form .form-grid textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d7e5f3;
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: var(--deep);
+  background: #fbfdff;
+  font-size: 14px;
+}
+
+.patient-form .form-grid input:focus,
+.patient-form .form-grid textarea:focus {
+  outline: 0;
+  border-color: #6ca8c4;
+  box-shadow: 0 0 0 3px rgba(108, 168, 196, 0.2);
+}
+
+.patient-form .form-grid textarea {
+  resize: vertical;
+}
+
+.patient-form .field-helper {
+  color: #8197a4;
+  font-size: 10px;
+}
+
+.patient-form .complaint-picker {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.patient-form .complaint-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.patient-form .complaint-option {
+  min-width: 0;
+  min-height: 42px;
+}
+
+.patient-form .modal-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 14px 0 2px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+
+@media (max-width: 720px) {
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 10px 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .modal {
+    width: min(100%, 560px);
+    max-height: calc(100dvh - 20px - env(safe-area-inset-bottom));
+    padding: 18px 16px 14px;
+    border-radius: 16px 16px 12px 12px;
+  }
+
+  .modal-header {
+    margin-bottom: 16px;
+  }
+
+  .patient-form .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 13px;
+  }
+
+  .patient-form .form-grid > .wide {
+    grid-column: auto;
+  }
+
+  .patient-form .modal-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 8px;
+    margin: 16px -16px -14px;
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .patient-form .modal-footer .button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .patient-form .complaint-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
