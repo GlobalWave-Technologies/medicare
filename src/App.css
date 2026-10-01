@@ -15,7 +15,7 @@
 .login-form{width:min(390px,100%)!important;padding:34px 30px 28px;background:rgba(255,255,255,.88);border:1px solid rgba(255,255,255,.96);border-radius:26px;box-shadow:0 18px 42px rgba(35,72,125,.13);text-align:center}
 .login-user-icon{width:72px;height:72px;margin:0 auto 18px;display:grid;place-items:center;border-radius:50%;color:#6084a9;background:linear-gradient(145deg,#f5faff,#e1edfb);border:1px solid #fff;box-shadow:0 8px 18px rgba(35,72,125,.12)}
 .login-form .eyebrow{margin-bottom:8px;color:#6e91b4}.login-form h2{font-size:24px!important;margin-bottom:7px!important}.login-helper{margin:0 0 26px!important;color:#91a4b8!important}.login-form form{text-align:left;gap:14px!important}.login-form input{background:#f8fbff!important;border-color:#d7e5f3!important;border-radius:12px!important;padding:12px 13px!important}.login-form input:focus{border-color:#6ca8c4!important;box-shadow:0 0 0 3px #dceff5!important}.password-input span{top:16px}.form-options{margin-top:0}.login-button{border-radius:12px!important;padding:13px!important;margin-top:6px!important}.login-footer{margin-top:24px;padding-top:18px}
-.login-page{grid-template-columns:minmax(0,58%) minmax(390px,42%);background:#fff}
+.login-page{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);background:#fff}
 .login-visual{isolation:isolate!important;background-image:linear-gradient(90deg,rgba(20,55,92,.88) 0%,rgba(24,92,119,.66) 48%,rgba(33,113,150,.22) 100%),url('https://images.unsplash.com/photo-1584982751601-97dcc096659c?auto=format&fit=crop&w=1400&q=88')!important;background-position:center!important;background-size:cover!important}
 .login-visual:after{z-index:-1;opacity:.1;background-image:linear-gradient(120deg,transparent 45%,#ffffff12 45%,#ffffff12 46%,transparent 46%)!important;background-size:100% 100%}
 .login-orbit{border-color:#ffffff25}
@@ -23,7 +23,7 @@
 .login-visual-copy h1{font-size:clamp(34px,4vw,56px);text-shadow:0 3px 18px rgba(10,43,72,.2)}
 .login-form-wrap{background:#fff;box-shadow:-14px 0 40px rgba(24,72,103,.08);z-index:1}
 @media(max-width:720px){.login-page{grid-template-columns:1fr}.login-visual{min-height:310px;background-position:center}.login-visual-copy{top:auto;bottom:18%;}.login-form-wrap{box-shadow:none}}
-@media(min-width:721px){.login-page{grid-template-columns:minmax(0,58%) minmax(390px,42%)!important}}
+@media(min-width:721px){.login-page{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)!important}}
 /* Login layout base styles. */
 .login-page{min-height:100vh;display:grid;grid-template-columns:51% 49%;background:#fff}.login-visual{overflow:hidden;position:relative;color:#fff;padding:48px 7vw;background:linear-gradient(145deg,#23487d 0%,#217196 62%,#4ca4b0 100%)}.login-visual:after{content:'';position:absolute;inset:0;opacity:.09;background-image:radial-gradient(#fff 1px,transparent 1px);background-size:22px 22px}.login-orbit{position:absolute;border:1px solid #ffffff2d;border-radius:50%}.orbit-one{width:620px;height:620px;left:-140px;bottom:-180px}.orbit-two{width:440px;height:440px;left:-70px;bottom:-85px}.login-brand,.login-visual-copy,.login-version{position:relative;z-index:1}.login-brand{display:flex;flex-wrap:wrap;align-items:center;gap:11px;max-width:260px}.login-brand .brand-mark{width:42px;height:42px}.login-brand strong{font:700 16px Manrope;color:#fff}.login-brand span{margin-left:53px;margin-top:-8px;color:#c1e1e3;font-size:10px}.login-visual-copy{position:absolute;top:38%;max-width:440px}.login-visual-copy .eyebrow{color:#b7d8dc}.login-visual-copy h1{font:700 clamp(31px,3.5vw,51px)/1.1 Manrope;letter-spacing:-2px;margin:0;color:#fff}.login-visual-copy h1 em{color:#bde6df;font-style:normal}.login-visual-copy>p:not(.eyebrow){color:#c3dde0;max-width:350px;font-size:12px;line-height:1.7;margin-top:19px}.login-trust{display:flex;align-items:center;gap:8px;margin-top:38px;color:#dcf2ef;font-size:10px}.login-version{position:absolute;bottom:37px;left:7vw;color:#acd1d6;font-size:9px;letter-spacing:1px}.login-form-wrap{display:flex;align-items:center;justify-content:center;position:relative;padding:40px}.login-form{width:min(330px,100%)}.login-form h2{color:var(--deep);font:700 25px Manrope;letter-spacing:-.7px;margin:0}.login-helper{color:#91a2aa;font-size:11px;margin:8px 0 31px}.login-form form{display:grid;gap:17px}.login-form label{color:#526f7c;font-weight:600;font-size:10px}.login-form input{display:block;width:100%;border:1px solid #dfe9ed;border-radius:7px;padding:10px;margin-top:6px;outline:0;color:#365264;font-size:11px}.password-input{position:relative}.password-input input{padding-right:45px}.password-input span{position:absolute;right:12px;top:14px;color:var(--blue);font-size:9px;cursor:pointer}.form-options{display:flex;justify-content:space-between;align-items:center;margin-top:-3px}.check-label{display:flex;align-items:center;gap:7px;font-weight:400!important;font-size:9px!important}.check-label input{width:13px;height:13px;margin:0;accent-color:var(--blue)}.form-options a,.login-footer a{color:var(--blue);text-decoration:none;font-size:9px;font-weight:700}.login-button{width:100%;padding:13px;margin-top:4px}.login-footer{border-top:1px solid var(--line);padding-top:18px;margin-top:32px;display:flex;gap:5px;justify-content:center;color:#98a8af;font-size:9px}.login-copyright{position:absolute;bottom:38px;color:#aab8bd;font-size:9px}.login-copyright span{padding:0 5px}
 @media(max-width:720px){.login-page{grid-template-columns:1fr}.login-visual{min-height:270px;padding:25px}.login-visual-copy{top:45%}.login-visual-copy h1{font-size:31px;letter-spacing:-1px}.login-visual-copy>p:not(.eyebrow),.login-trust{display:none}.login-version{left:25px;bottom:20px}.login-form-wrap{min-height:500px;padding:30px 22px 65px}.login-form h2{font-size:22px}.login-copyright{bottom:18px}}
@@ -1077,5 +1077,405 @@ nav button.active svg{filter:drop-shadow(0 3px 4px rgba(249,115,22,.20))}
 
   .modal {
     padding-inline: 12px;
+  }
+}
+
+.patient-detail-view {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.patient-detail-back {
+  justify-self: start;
+}
+
+.patient-profile-heading,
+.patient-profile-identity,
+.medication-order-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.patient-profile-identity {
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.patient-profile-identity .avatar {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+}
+
+.patient-profile-identity h2 {
+  margin: 0;
+  color: var(--deep);
+  font: 700 20px Manrope, sans-serif;
+}
+
+.patient-profile-identity .eyebrow {
+  margin-bottom: 4px;
+}
+
+.patient-info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.patient-info-grid > div,
+.medication-order-details > span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.patient-info-grid span,
+.medication-order-details b {
+  color: #91a3ac;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.patient-info-grid strong {
+  color: var(--deep);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.patient-care-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.medication-panel,
+.assigned-medications-panel {
+  min-width: 0;
+}
+
+.medication-panel > .panel-header > svg {
+  flex: 0 0 auto;
+  color: var(--blue);
+}
+
+.medication-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px 12px;
+  margin-top: 20px;
+}
+
+.medication-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #526f7c;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.medication-form input,
+.medication-form select,
+.medication-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #dfe9ed;
+  border-radius: 7px;
+  padding: 10px 11px;
+  outline: 0;
+  color: var(--deep);
+  background: #fff;
+  font-size: 11px;
+}
+
+.medication-form input:focus,
+.medication-form select:focus,
+.medication-form textarea:focus {
+  border-color: #9acbd4;
+  box-shadow: 0 0 0 3px rgba(154, 203, 212, 0.2);
+}
+
+.medication-form textarea {
+  resize: vertical;
+}
+
+.medication-instructions,
+.medication-submit {
+  grid-column: 1 / -1;
+}
+
+.medication-submit {
+  justify-self: start;
+  min-height: 40px;
+}
+
+.medication-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-height: 210px;
+  align-content: center;
+  color: #91a3ac;
+  text-align: center;
+}
+
+.medication-empty svg {
+  color: #9acbd4;
+}
+
+.medication-empty strong {
+  color: var(--deep);
+  font-size: 12px;
+}
+
+.medication-empty span {
+  font-size: 10px;
+}
+
+.medication-order-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.medication-order {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.medication-order-heading {
+  align-items: flex-start;
+}
+
+.medication-order-heading > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.medication-order-heading strong {
+  color: var(--deep);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.medication-order-heading span,
+.medication-order-heading time,
+.medication-order > small {
+  color: #91a3ac;
+  font-size: 9px;
+}
+
+.medication-order-heading time {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.medication-order-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.medication-order-details > span {
+  color: var(--deep);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.medication-order-instructions {
+  margin: 12px 0 8px;
+  color: #617b87;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .patient-care-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .patient-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .patient-profile-panel,
+  .medication-panel,
+  .assigned-medications-panel {
+    padding: 16px 14px;
+  }
+
+  .medication-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .medication-instructions,
+  .medication-submit {
+    grid-column: auto;
+  }
+
+  .medication-submit {
+    width: 100%;
+  }
+
+  .patient-profile-heading {
+    flex-wrap: wrap;
+  }
+
+  .medication-order-heading {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .patient-info-grid {
+    gap: 12px 8px;
+  }
+
+  .patient-profile-identity h2 {
+    font-size: 17px;
+  }
+
+  .medication-order {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 900px) {
+  .login-page {
+    width: 100%;
+    min-width: 0;
+    min-height: 100svh;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto 1fr;
+    overflow-x: clip;
+  }
+
+  .login-visual {
+    min-width: 0;
+    min-height: 112px;
+    padding: 22px 20px;
+    border-radius: 0;
+    margin: 0;
+    box-shadow: none;
+  }
+
+  .login-brand {
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .login-brand span {
+    margin-left: 53px;
+  }
+
+  .login-visual-copy,
+  .login-version,
+  .login-orbit {
+    display: none;
+  }
+
+  .login-form-wrap {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 28px 20px calc(28px + env(safe-area-inset-bottom)) !important;
+    box-shadow: none;
+  }
+
+  .login-form {
+    width: min(100%, 420px) !important;
+    min-width: 0;
+    margin: 0 auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    text-align: left;
+  }
+
+  .login-user-icon {
+    width: 54px;
+    height: 54px;
+    margin: 0 0 16px;
+  }
+
+  .login-form input,
+  .login-form select,
+  .password-input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .form-options {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .form-options label,
+  .form-options a {
+    min-width: 0;
+  }
+
+  .login-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .social-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .social-button {
+    min-width: 0;
+    padding-inline: 8px;
+  }
+
+  .login-copyright {
+    position: static;
+    width: 100%;
+    margin-top: 28px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 380px) {
+  .login-visual {
+    min-height: 100px;
+    padding-inline: 16px;
+  }
+
+  .login-form-wrap {
+    padding-inline: 16px !important;
+  }
+
+  .form-options {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

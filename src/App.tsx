@@ -2,7 +2,7 @@
 import {
   Activity, ArrowUpRight, Bell, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ClipboardList,
   Clock3, Download, FileText, HeartPulse, LayoutDashboard, Menu, MoreHorizontal,
-  Plus, Search, Settings, ShieldCheck, Stethoscope, UserRound, UsersRound, X,
+  Pill, Plus, Search, Settings, ShieldCheck, Stethoscope, UserRound, UsersRound, X,
 } from 'lucide-react'
 import './App.css'
 
@@ -23,6 +23,31 @@ const roleLabels: Record<Role, string> = {
 }
 const appointments = [{ time: '09:00', name: 'Amina Yusuf', detail: 'Follow-up consultation', color: 'mint', initials: 'AY' }, { time: '10:30', name: 'Marcus Johnson', detail: 'General body pain', color: 'gold', initials: 'MJ' }, { time: '11:15', name: 'Sofia Martins', detail: 'Routine check-up', color: 'lilac', initials: 'SM' }, { time: '13:00', name: 'Daniel Kim', detail: 'Chest pains', color: 'rose', initials: 'DK' }]
 const recentPatients = [{ id: 'PT-2048', name: 'Amina Yusuf', age: '28 yrs', complaint: 'Allergic Reaction', status: 'Active', seen: 'Today, 08:42', initials: 'AY', color: 'mint' }, { id: 'PT-2047', name: 'Marcus Johnson', age: '45 yrs', complaint: 'General Body Pain', status: 'Active', seen: 'Today, 08:15', initials: 'MJ', color: 'gold' }, { id: 'PT-2046', name: 'Sofia Martins', age: '32 yrs', complaint: 'Headache', status: 'Pending', seen: 'Yesterday, 16:20', initials: 'SM', color: 'lilac' }, { id: 'PT-2045', name: 'Daniel Kim', age: '51 yrs', complaint: 'Chest Pains', status: 'Active', seen: 'Yesterday, 14:08', initials: 'DK', color: 'rose' }]
+type Patient = (typeof recentPatients)[number]
+type MedicationOrder = {
+  id: string
+  patientId: string
+  medication: string
+  strength: string
+  dose: string
+  route: string
+  frequency: string
+  duration: string
+  instructions: string
+  assignedAt: string
+  assignedBy: string
+}
+type MedicationDraft = Omit<MedicationOrder, 'id' | 'patientId' | 'assignedAt' | 'assignedBy'>
+
+function loadMedicationOrders(): MedicationOrder[] {
+  try {
+    const savedOrders = JSON.parse(localStorage.getItem('medicare-medication-orders') ?? '[]')
+    return Array.isArray(savedOrders) ? savedOrders as MedicationOrder[] : []
+  } catch {
+    return []
+  }
+}
+
 const medicalRecords = [{ patient: 'Amina Yusuf', recordId: 'MR-7842', visit: 'Today, 08:42', diagnosis: 'Allergic Reaction', clinician: 'Dr. Okafor', status: 'Reviewed', color: 'mint', initials: 'AY' }, { patient: 'Marcus Johnson', recordId: 'MR-7841', visit: 'Today, 08:15', diagnosis: 'General Body Pain', clinician: 'Dr. Okafor', status: 'Reviewed', color: 'gold', initials: 'MJ' }, { patient: 'Sofia Martins', recordId: 'MR-7839', visit: 'Yesterday, 16:20', diagnosis: 'Headache', clinician: 'Dr. Bello', status: 'Pending', color: 'lilac', initials: 'SM' }, { patient: 'Daniel Kim', recordId: 'MR-7836', visit: 'Yesterday, 14:08', diagnosis: 'Chest Pains', clinician: 'Dr. Mensah', status: 'Reviewed', color: 'rose', initials: 'DK' }]
 
 type Broadcast = { id: number; title: string; message: string; audience: string; createdAt: string }
@@ -38,6 +63,8 @@ const statusMeaning: Record<string, string> = {
 
 function App() {
   const [view, setView] = useState<View>('Overview')
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
+  const [medicationOrders, setMedicationOrders] = useState<MedicationOrder[]>(loadMedicationOrders)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [showPatientForm, setShowPatientForm] = useState(false)
   const [showAppointmentForm, setShowAppointmentForm] = useState(false)
@@ -79,6 +106,10 @@ function App() {
     }
   }, [signedIn])
 
+  useEffect(() => {
+    localStorage.setItem('medicare-medication-orders', JSON.stringify(medicationOrders))
+  }, [medicationOrders])
+
   if (!signedIn) return <Login onLogin={(selectedRole) => { setRole(selectedRole); setSignedIn(true) }} />
 
   const filteredPatients = recentPatients.filter((patient) => `${patient.name} ${patient.id} ${patient.complaint}`.toLowerCase().includes(query.toLowerCase()))
@@ -101,6 +132,16 @@ function App() {
     setShowBroadcastModal(false)
   }
 
+  const handleAssignMedication = (patientId: string, draft: MedicationDraft) => {
+    setMedicationOrders((current) => [{
+      ...draft,
+      id: `RX-${Date.now()}`,
+      patientId,
+      assignedAt: new Date().toISOString(),
+      assignedBy: roleLabels[role],
+    }, ...current])
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${isMenuOpen ? 'open' : ''}`}>
@@ -111,7 +152,7 @@ function App() {
         <div className="workspace-label">WORKSPACE</div>
         <nav>
           {navItems.map(({ label, icon: Icon }) => (
-            <button key={label} className={view === label ? 'active' : ''} onClick={() => { setView(label); setIsMenuOpen(false) }}>
+            <button key={label} className={view === label ? 'active' : ''} onClick={() => { setView(label); setIsMenuOpen(false); if (label === 'Patients') setSelectedPatient(null) }}>
               <Icon size={18} />
               <span>{label}</span>
               {label === 'Appointments' && <b>8</b>}
@@ -158,7 +199,14 @@ function App() {
           </div>
 
           {view === 'Overview' && <Overview onView={setView} />}
-          {view === 'Patients' && <Patients query={query} setQuery={setQuery} patients={filteredPatients} onAdd={() => setShowPatientForm(true)} />}
+          {view === 'Patients' && (selectedPatient
+            ? <PatientDetails
+                patient={selectedPatient}
+                orders={medicationOrders.filter((order) => order.patientId === selectedPatient.id)}
+                onBack={() => setSelectedPatient(null)}
+                onAssign={(draft) => handleAssignMedication(selectedPatient.id, draft)}
+              />
+            : <Patients query={query} setQuery={setQuery} patients={filteredPatients} onAdd={() => setShowPatientForm(true)} onSelect={setSelectedPatient} />)}
           {view === 'Appointments' && <Appointments onBook={() => setShowAppointmentForm(true)} />}
           {view === 'Medical records' && <Records />}
           {view === 'Reports' && <Reports />}
@@ -272,7 +320,7 @@ function Overview({ onView }: { onView: (view: View) => void }) {
   )
 }
 
-function Patients({ query, setQuery, patients, onAdd }: { query: string; setQuery: (value: string) => void; patients: typeof recentPatients; onAdd: () => void }) {
+function Patients({ query, setQuery, patients, onAdd, onSelect }: { query: string; setQuery: (value: string) => void; patients: typeof recentPatients; onAdd: () => void; onSelect: (patient: Patient) => void }) {
   const pageSize = 2
   const [currentPage, setCurrentPage] = useState(1)
   const pageCount = Math.max(1, Math.ceil(patients.length / pageSize))
@@ -310,12 +358,87 @@ function Patients({ query, setQuery, patients, onAdd }: { query: string; setQuer
             <span>{patient.age}</span>
             <span>{patient.complaint}</span>
             <span title={statusMeaning[patient.status] ?? patient.status}><em className={`status ${patient.status.toLowerCase()}`}>{patient.status}</em></span>
-            <button className="more-button"><MoreHorizontal size={18} /></button>
+            <button className="more-button" aria-label={`View details for ${patient.name}`} title="View patient details" onClick={() => onSelect(patient)}><ArrowUpRight size={17} /></button>
           </div>
         ))}
       </div>
       <Pagination currentPage={page} pageCount={pageCount} total={patients.length} pageSize={pageSize} onPageChange={setCurrentPage} />
     </section>
+  )
+}
+
+function PatientDetails({ patient, orders, onBack, onAssign }: { patient: Patient; orders: MedicationOrder[]; onBack: () => void; onAssign: (draft: MedicationDraft) => void }) {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    const values = new FormData(form)
+    onAssign({
+      medication: String(values.get('medication')).trim(),
+      strength: String(values.get('strength')).trim(),
+      dose: String(values.get('dose')).trim(),
+      route: String(values.get('route')),
+      frequency: String(values.get('frequency')).trim(),
+      duration: String(values.get('duration')).trim(),
+      instructions: String(values.get('instructions')).trim(),
+    })
+    form.reset()
+  }
+
+  return (
+    <div className="patient-detail-view">
+      <button className="button button-ghost patient-detail-back" onClick={onBack}><ChevronLeft size={16} /> Patient directory</button>
+
+      <section className="panel patient-profile-panel">
+        <div className="patient-profile-heading">
+          <div className="patient-profile-identity">
+            <div className={`avatar avatar-${patient.color}`}>{patient.initials}</div>
+            <div><p className="eyebrow">PATIENT PROFILE</p><h2>{patient.name}</h2></div>
+          </div>
+          <em className={`status ${patient.status.toLowerCase()}`}>{patient.status}</em>
+        </div>
+        <div className="patient-info-grid">
+          <div><span>Patient ID</span><strong>{patient.id}</strong></div>
+          <div><span>Age</span><strong>{patient.age}</strong></div>
+          <div><span>Current complaint</span><strong>{patient.complaint}</strong></div>
+          <div><span>Last seen</span><strong>{patient.seen}</strong></div>
+        </div>
+      </section>
+
+      <div className="patient-care-grid">
+        <section className="panel medication-panel">
+          <div className="panel-header">
+            <div><h2>Assign medication</h2><p>Record medication details exactly as prescribed.</p></div>
+            <Pill size={20} aria-hidden="true" />
+          </div>
+          <form className="medication-form" onSubmit={handleSubmit}>
+            <label>Medication name<input name="medication" required maxLength={100} placeholder="Enter medication name" /></label>
+            <label>Strength<input name="strength" required maxLength={60} placeholder="e.g. 500 mg" /></label>
+            <label>Dose<input name="dose" required maxLength={80} placeholder="e.g. 1 tablet" /></label>
+            <label>Route<select name="route" required defaultValue=""><option value="" disabled>Select route</option><option>Oral</option><option>Injection</option><option>Topical</option><option>Inhaled</option><option>Other</option></select></label>
+            <label>Frequency<input name="frequency" required maxLength={80} placeholder="Enter prescribed frequency" /></label>
+            <label>Duration<input name="duration" required maxLength={80} placeholder="e.g. 5 days" /></label>
+            <label className="medication-instructions">Instructions<textarea name="instructions" maxLength={500} rows={3} placeholder="Additional instructions (optional)" /></label>
+            <button className="button button-primary medication-submit" type="submit"><Plus size={17} /> Assign medication</button>
+          </form>
+        </section>
+
+        <section className="panel assigned-medications-panel">
+          <div className="panel-header">
+            <div><h2>Assigned medications</h2><p>{orders.length} {orders.length === 1 ? 'order' : 'orders'} for {patient.name}</p></div>
+          </div>
+          {orders.length === 0
+            ? <div className="medication-empty"><Pill size={22} /><strong>No medications assigned</strong><span>Assigned orders will appear here.</span></div>
+            : <div className="medication-order-list">{orders.map((order) => (
+                <article className="medication-order" key={order.id}>
+                  <div className="medication-order-heading"><div><strong>{order.medication}</strong><span>{order.strength}</span></div><time dateTime={order.assignedAt}>{new Date(order.assignedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time></div>
+                  <div className="medication-order-details"><span><b>Dose</b>{order.dose}</span><span><b>Route</b>{order.route}</span><span><b>Frequency</b>{order.frequency}</span><span><b>Duration</b>{order.duration}</span></div>
+                  {order.instructions && <p className="medication-order-instructions">{order.instructions}</p>}
+                  <small>Assigned by {order.assignedBy}</small>
+                </article>
+              ))}</div>}
+        </section>
+      </div>
+    </div>
   )
 }
 
