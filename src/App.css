@@ -1913,3 +1913,79 @@ nav button.active svg{filter:drop-shadow(0 3px 4px rgba(249,115,22,.20))}
     gap: 8px;
   }
 }
+
+.modal {
+  padding: 24px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.form-grid > .wide {
+  grid-column: 1 / -1;
+}
+
+.form-grid > label {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  color: #526f7c;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d7e5f3;
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: var(--deep);
+  background: #fbfdff;
+  font-size: 13px;
+}
+
+.form-grid input:focus,
+.form-grid select:focus,
+.form-grid textarea:focus {
+  outline: 0;
+  border-color: #6ca8c4;
+  box-shadow: 0 0 0 3px rgba(108, 168, 196, 0.18);
+}
+
+.form-grid textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 720px) {
+  .modal {
+    padding: 20px 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 13px;
+  }
+
+  .form-grid > .wide {
+    grid-column: auto;
+  }
+}
