@@ -116,7 +116,6 @@ function App() {
   const pageTitle = role === 'Admin' ? 'Good morning, Admin' : role === 'Records Officer' ? 'Good morning, Records Officer' : 'Good morning, Doctor in Charge'
   const pageDescription = role === 'Admin' ? "Here's what's happening across your hospital today." : role === 'Records Officer' ? 'Monitor patient logging, records access, and urgent notifications.' : 'Review high-level care metrics and key clinical operations.'
   const showExportReportButton = view === 'Reports' && role === 'Admin'
-  const showAddPatientButton = role !== 'Doctor in Charge' || view !== 'Reports'
   const navItems = navItemsByRole[role]
 
   const handleBroadcast = (message: string) => {
@@ -194,7 +193,6 @@ function App() {
             <div className="heading-actions">
               {role === 'Admin' && <button className="button button-ghost" onClick={() => setShowBroadcastModal(true)}><Bell size={16} /> Broadcast alert</button>}
               {showExportReportButton && <button className="button button-ghost"><Download size={16} /> Export report</button>}
-              {showAddPatientButton && <button className="button button-primary" onClick={() => setShowPatientForm(true)}><Plus size={18} /> Add patient</button>}
             </div>
           </div>
 
