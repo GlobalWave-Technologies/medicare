@@ -1671,6 +1671,16 @@ nav button.active svg{filter:drop-shadow(0 3px 4px rgba(249,115,22,.20))}
   min-width: 0;
 }
 
+.patient-form .other-complaint-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin-top: 4px;
+  color: #526f7c;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .patient-form .complaint-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

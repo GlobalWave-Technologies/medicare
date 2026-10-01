@@ -611,11 +611,13 @@ function ActivityItem({ icon: Icon, text, by, time, color }: { icon: typeof User
 
 function PatientModal({ onClose }: { onClose: () => void }) {
   const [selectedComplaints, setSelectedComplaints] = useState<string[]>([])
+  const [otherComplaint, setOtherComplaint] = useState('')
 
   const toggleComplaint = (complaint: string) => {
     setSelectedComplaints((current) => current.includes(complaint)
       ? current.filter((item) => item !== complaint)
       : [...current, complaint])
+    if (complaint === 'Other') setOtherComplaint('')
   }
 
   const handleSave = (event: React.FormEvent<HTMLFormElement>) => {
@@ -628,7 +630,9 @@ function PatientModal({ onClose }: { onClose: () => void }) {
       roomNumber: String(values.get('roomNumber') ?? '').trim(),
       phoneNumber: String(values.get('phoneNumber') ?? '').trim(),
       personnelName: String(values.get('personnelName') ?? '').trim() || 'Not provided',
-      chiefComplaints: selectedComplaints,
+      chiefComplaints: selectedComplaints.map((complaint) => complaint === 'Other' && otherComplaint.trim()
+        ? `Other: ${otherComplaint.trim()}`
+        : complaint),
       medicalHistory: String(values.get('medicalHistory') ?? '').trim(),
       savedAt: new Date().toISOString(),
     }
@@ -672,7 +676,8 @@ function PatientModal({ onClose }: { onClose: () => void }) {
                 </label>
               ))}
             </div>
-            {selectedComplaints.length > 0 && <small className="field-helper">Selected: {selectedComplaints.join(', ')}</small>}
+            {selectedComplaints.includes('Other') && <label className="other-complaint-field">Other sickness<input name="otherComplaint" value={otherComplaint} onChange={(event) => setOtherComplaint(event.target.value)} required maxLength={120} placeholder="Enter the sickness or complaint" /></label>}
+            {selectedComplaints.length > 0 && <small className="field-helper">Selected: {selectedComplaints.map((complaint) => complaint === 'Other' && otherComplaint.trim() ? `Other: ${otherComplaint.trim()}` : complaint).join(', ')}</small>}
           </div>
           <label className="wide">Medical history summary<textarea name="medicalHistory" placeholder="Add a brief summary for the care team..." /></label>
           </div>
