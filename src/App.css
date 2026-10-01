@@ -1644,3 +1644,38 @@ nav button.active svg{filter:drop-shadow(0 3px 4px rgba(249,115,22,.20))}
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.patient-table:not(.records-table) .table-row {
+  grid-template-columns: minmax(180px, 1.4fr) 90px minmax(160px, 1fr) 90px minmax(108px, max-content);
+}
+
+.patient-detail-action {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 5px;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid #fed7aa;
+  border-radius: 7px;
+  color: #c2410c;
+  background: #fffaf7;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.patient-detail-action:hover {
+  border-color: #fdba74;
+  background: #fff1e6;
+}
+
+@media (max-width: 720px) {
+  .patient-table:not(.records-table) .patient-detail-action {
+    position: static;
+    grid-column: 1 / -1;
+    justify-self: start;
+    min-height: 36px;
+    margin-top: 2px;
+  }
+}

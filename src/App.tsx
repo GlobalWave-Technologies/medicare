@@ -356,7 +356,7 @@ function Patients({ query, setQuery, patients, onAdd, onSelect }: { query: strin
             <span>{patient.age}</span>
             <span>{patient.complaint}</span>
             <span title={statusMeaning[patient.status] ?? patient.status}><em className={`status ${patient.status.toLowerCase()}`}>{patient.status}</em></span>
-            <button className="more-button" aria-label={`View details for ${patient.name}`} title="View patient details" onClick={() => onSelect(patient)}><ArrowUpRight size={17} /></button>
+            <button className="patient-detail-action" aria-label={`View details for ${patient.name}`} onClick={() => onSelect(patient)}><span>View details</span><ArrowUpRight size={16} /></button>
           </div>
         ))}
       </div>
