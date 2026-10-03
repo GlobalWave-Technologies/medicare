@@ -22,7 +22,7 @@ const roleLabels: Record<Role, string> = {
   'Doctor in Charge': 'Doctor in Charge',
 }
 const appointments = [{ time: '09:00', name: 'Amina Yusuf', detail: 'Follow-up consultation', color: 'mint', initials: 'AY' }, { time: '10:30', name: 'Marcus Johnson', detail: 'General body pain', color: 'gold', initials: 'MJ' }, { time: '11:15', name: 'Sofia Martins', detail: 'Routine check-up', color: 'lilac', initials: 'SM' }, { time: '13:00', name: 'Daniel Kim', detail: 'Chest pains', color: 'rose', initials: 'DK' }]
-const recentPatients = [{ id: 'PT-2048', name: 'Amina Yusuf', age: '28 yrs', complaint: 'Allergic Reaction', status: 'Active', seen: 'Today, 08:42', initials: 'AY', color: 'mint' }, { id: 'PT-2047', name: 'Marcus Johnson', age: '45 yrs', complaint: 'General Body Pain', status: 'Active', seen: 'Today, 08:15', initials: 'MJ', color: 'gold' }, { id: 'PT-2046', name: 'Sofia Martins', age: '32 yrs', complaint: 'Headache', status: 'Pending', seen: 'Yesterday, 16:20', initials: 'SM', color: 'lilac' }, { id: 'PT-2045', name: 'Daniel Kim', age: '51 yrs', complaint: 'Chest Pains', status: 'Active', seen: 'Yesterday, 14:08', initials: 'DK', color: 'rose' }]
+const recentPatients = [{ id: 'PT-2048', name: 'Amina Yusuf', roomNumber: 'Ward 3 / Room 12', complaint: 'Allergic Reaction', status: 'Active', seen: 'Today, 08:42', initials: 'AY', color: 'mint' }, { id: 'PT-2047', name: 'Marcus Johnson', roomNumber: 'Ward 2 / Room 08', complaint: 'General Body Pain', status: 'Active', seen: 'Today, 08:15', initials: 'MJ', color: 'gold' }, { id: 'PT-2046', name: 'Sofia Martins', roomNumber: 'Ward 1 / Room 06', complaint: 'Headache', status: 'Pending', seen: 'Yesterday, 16:20', initials: 'SM', color: 'lilac' }, { id: 'PT-2045', name: 'Daniel Kim', roomNumber: 'Ward 4 / Room 14', complaint: 'Chest Pains', status: 'Active', seen: 'Yesterday, 14:08', initials: 'DK', color: 'rose' }]
 type Patient = (typeof recentPatients)[number]
 type MedicationOrder = {
   id: string
@@ -146,7 +146,7 @@ function App() {
       <aside className={`sidebar ${isMenuOpen ? 'open' : ''}`}>
         <div className="brand">
           <div className="brand-mark"><CloudMark /></div>
-          <div><strong>Hospital Records</strong><span>Secure Access Portal</span></div>
+          <div><strong>Infirmary Management System</strong><span>Secure Access Portal</span></div>
         </div>
         <div className="workspace-label">WORKSPACE</div>
         <nav>
@@ -349,11 +349,11 @@ function Patients({ query, setQuery, patients, onAdd, onSelect }: { query: strin
         <button className="select-button">All statuses <ChevronDown size={15} /></button>
       </div>
       <div className="patient-table">
-        <div className="table-row table-head"><span>Patient name</span><span>Age</span><span>Symptoms</span><span>Status</span><span /></div>
+        <div className="table-row table-head"><span>Patient name</span><span>Room number</span><span>Symptoms</span><span>Status</span><span /></div>
         {visiblePatients.map((patient) => (
           <div className="table-row" key={patient.id}>
             <div className="patient-name"><div className={`avatar avatar-${patient.color}`}>{patient.initials}</div><strong>{patient.name}</strong></div>
-            <span>{patient.age}</span>
+            <span>{patient.roomNumber}</span>
             <span>{patient.complaint}</span>
             <span title={statusMeaning[patient.status] ?? patient.status}><em className={`status ${patient.status.toLowerCase()}`}>{patient.status}</em></span>
             <button className="patient-detail-action" aria-label={`View details for ${patient.name}`} onClick={() => onSelect(patient)}><span>View details</span><ArrowUpRight size={16} /></button>
@@ -396,7 +396,7 @@ function PatientDetails({ patient, orders, onBack, onAssign }: { patient: Patien
         </div>
         <div className="patient-info-grid">
           <div><span>Patient ID</span><strong>{patient.id}</strong></div>
-          <div><span>Age</span><strong>{patient.age}</strong></div>
+          <div><span>Room number</span><strong>{patient.roomNumber}</strong></div>
           <div><span>Current complaint</span><strong>{patient.complaint}</strong></div>
           <div><span>Last seen</span><strong>{patient.seen}</strong></div>
         </div>
@@ -729,7 +729,7 @@ function Login({ onLogin }: { onLogin: (role: Role) => void }) {
         <div className="login-orbit orbit-two" />
         <div className="login-brand">
           <div className="brand-mark"><CloudMark /></div>
-          <strong>Hospital Records</strong>
+          <strong>Infirmary Management System</strong>
           <span>Secure Access Portal</span>
         </div>
         <div className="login-visual-copy">
@@ -738,7 +738,7 @@ function Login({ onLogin }: { onLogin: (role: Role) => void }) {
           <p>One secure workspace for your care team to manage records, appointments and the moments that matter.</p>
           <div className="login-trust"><ShieldCheck size={17} /><span>Protected with enterprise-grade security</span></div>
         </div>
-        <span className="login-version">HRS / v1.0.0</span>
+        <span className="login-version">IMS / v1.0.0</span>
       </div>
 
       <div className="login-form-wrap">
@@ -766,7 +766,7 @@ function Login({ onLogin }: { onLogin: (role: Role) => void }) {
             <p>Need an account? <button type="button" className="text-button" onClick={() => setShowCreateAccount(true)}>Request access</button></p>
           </div>
         </div>
-        <div className="login-copyright">© 2026 Hospital Records System <span>·</span> Privacy & security</div>
+        <div className="login-copyright">© 2026 Infirmary Management System <span>·</span> Privacy & security</div>
       </div>
     </div>
   )
@@ -804,7 +804,7 @@ function Signup({ onBack }: { onBack: () => void }) {
         <div className="login-orbit orbit-two" />
         <div className="login-brand">
           <div className="brand-mark"><CloudMark /></div>
-          <strong>Hospital Records</strong>
+          <strong>Infirmary Management System</strong>
           <span>Secure Access Portal</span>
         </div>
         <div className="login-visual-copy">
@@ -812,7 +812,7 @@ function Signup({ onBack }: { onBack: () => void }) {
           <h1>Care starts with<br /><em>connected people.</em></h1>
           <p>Create a staff account to access your hospital workspace. Your administrator will approve your role.</p>
         </div>
-        <span className="login-version">HRS / v1.0.0</span>
+        <span className="login-version">IMS / v1.0.0</span>
       </div>
 
       <div className="login-form-wrap">
@@ -833,7 +833,7 @@ function Signup({ onBack }: { onBack: () => void }) {
           </form>
           <button type="button" className="back-login" onClick={onBack}>Back to sign in</button>
         </div>
-        <div className="login-copyright">© 2026 Hospital Records System <span>·</span> Privacy & security</div>
+        <div className="login-copyright">© 2026 Infirmary Management System <span>·</span> Privacy & security</div>
       </div>
     </div>
   )
