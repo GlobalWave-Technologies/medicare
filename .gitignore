@@ -47,3 +47,6 @@ build/
 /server/.agents/
 /server/.claude/
 /server/.windsurf/
+
+# Local doctor credential file - never commit
+/client/doctor.json
