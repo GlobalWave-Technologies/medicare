@@ -1,0 +1,49 @@
+{
+  "name": "@medicare/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "dev": "npm run prisma:generate && tsx watch src/server.ts",
+    "build": "npm run prisma:generate && tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "lint": "oxlint src tests prisma.config.ts vitest.config.ts vitest.database.config.ts",
+    "typecheck": "npm run prisma:generate && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:database": "npm run build && tsx tests/runDatabaseTests.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "bootstrap:admin": "npm run prisma:generate && tsx src/cli/bootstrapAdmin.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "argon2": "^0.45.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.1.0",
+    "pg": "^8.16.3",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.15.6",
+    "@types/supertest": "^6.0.3",
+    "prisma": "7.10.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.21.0",
+    "vitest": "^5.0.3"
+  }
+}

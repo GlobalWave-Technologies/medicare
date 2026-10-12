@@ -1,0 +1,47 @@
+{
+  "name": "medicare",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run dev:client",
+    "dev:client": "npm run dev --workspace @medicare/client",
+    "dev:server": "npm run dev --workspace @medicare/server",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "npm run build --workspace @medicare/client",
+    "build:server": "npm run build --workspace @medicare/server",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspace @medicare/server",
+    "test:client": "npm run test --workspace @medicare/client",
+    "test:database": "npm run test:database --workspace @medicare/server",
+    "preview": "npm run preview --workspace @medicare/client",
+    "start:server": "npm run start --workspace @medicare/server",
+    "prisma:generate": "npm run prisma:generate --workspace @medicare/server",
+    "prisma:validate": "npm run prisma:validate --workspace @medicare/server",
+    "prisma:migrate": "npm run prisma:migrate --workspace @medicare/server --",
+    "prisma:migrate:deploy": "npm run prisma:migrate:deploy --workspace @medicare/server",
+    "prisma:studio": "npm run prisma:studio --workspace @medicare/server",
+    "bootstrap:admin": "npm run bootstrap:admin --workspace @medicare/server"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2"
+  },
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2"
+    },
+    "prisma": {
+      "mysql2": "3.24.5"
+    }
+  }
+}

@@ -1,0 +1,317 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum StaffRole {
+  ADMIN
+  RECORDS_OFFICER
+  DOCTOR_IN_CHARGE
+}
+
+enum StaffStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentType {
+  CONSULTATION
+  FOLLOW_UP
+  ROUTINE_CHECKUP
+  EMERGENCY_REVIEW
+}
+
+enum EncounterStatus {
+  DRAFT
+  REVIEWED
+  VOIDED
+}
+
+enum NotificationType {
+  DIRECT
+  BROADCAST
+}
+
+enum AuditAction {
+  ADMIN_BOOTSTRAPPED
+  STAFF_CREATED
+  STAFF_ROLE_CHANGED
+  STAFF_STATUS_CHANGED
+  PATIENT_CREATED
+  PATIENT_VIEWED
+  PATIENT_UPDATED
+  PATIENT_ARCHIVED
+  PATIENT_REACTIVATED
+  MEDICAL_RECORD_CREATED
+  MEDICAL_RECORD_VIEWED
+  MEDICAL_RECORD_UPDATED
+  MEDICAL_RECORD_FINALIZED
+  MEDICAL_RECORD_AMENDED
+  MEDICAL_HISTORY_VIEWED
+  CLINICAL_REPORT_VIEWED
+  APPOINTMENT_CREATED
+  APPOINTMENT_UPDATED
+  APPOINTMENT_VIEWED
+  APPOINTMENT_STATUS_CHANGED
+  APPOINTMENT_CANCELLED
+  NOTIFICATION_SENT
+  NOTIFICATION_BROADCAST_CREATED
+  LOGIN_SUCCEEDED
+  LOGIN_FAILED
+  LOGOUT
+  SESSION_REVOKED
+}
+
+enum AuditEntityType {
+  AUTH_ATTEMPT
+  STAFF_USER
+  PATIENT
+  APPOINTMENT
+  ENCOUNTER
+  NOTIFICATION
+}
+
+model StaffUser {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffNumber       String      @unique @default(dbgenerated("('STF-'::text || upper(replace((gen_random_uuid())::text, '-'::text, ''::text)))")) @db.VarChar(36)
+  firstName         String      @db.VarChar(100)
+  lastName          String      @db.VarChar(100)
+  email             String      @unique @db.VarChar(254)
+  role              StaffRole
+  status            StaffStatus @default(PENDING)
+  passwordHash      String?     @db.VarChar(512)
+  passwordChangedAt DateTime?   @db.Timestamptz(3)
+  lastLoginAt       DateTime?   @db.Timestamptz(3)
+  createdAt         DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime    @default(now()) @updatedAt @db.Timestamptz(3)
+
+  patients              Patient[]               @relation("PatientCreator")
+  appointmentsCreated   Appointment[]           @relation("AppointmentCreator")
+  appointmentsAssigned  Appointment[]           @relation("AppointmentClinician")
+  appointmentsCancelled Appointment[]           @relation("AppointmentCanceller")
+  encountersCreated     Encounter[]             @relation("EncounterCreator")
+  encountersReceived    Encounter[]             @relation("EncounterReceiver")
+  encountersPerformed   Encounter[]             @relation("EncounterClinician")
+  encounterAmendments    EncounterAmendment[]
+  notificationsSent     Notification[]
+  notifications         NotificationRecipient[]
+  auditEvents           AuditEvent[]
+  sessions              StaffSession[]
+
+  @@index([role, status])
+}
+
+model StaffSession {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffUserId String    @db.Uuid
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tokenHash   String    @unique @db.Char(64)
+  csrfToken   String    @db.Char(64)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt   DateTime  @db.Timestamptz(3)
+  revokedAt   DateTime? @db.Timestamptz(3)
+
+  @@index([staffUserId, revokedAt])
+  @@index([expiresAt])
+}
+
+model Patient {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patientNumber String        @unique @default(dbgenerated("('PT-'::text || upper((gen_random_uuid())::text))")) @db.VarChar(39)
+  firstName     String        @db.VarChar(100)
+  middleName    String?       @db.VarChar(100)
+  lastName      String        @db.VarChar(100)
+  dateOfBirth   DateTime?     @db.Date
+  phone         String?       @db.VarChar(32)
+  archivedAt    DateTime?     @db.Timestamptz(3)
+  createdById   String        @db.Uuid
+  createdBy     StaffUser     @relation("PatientCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @default(now()) @updatedAt @db.Timestamptz(3)
+  appointments  Appointment[]
+  encounters    Encounter[]
+
+  @@index([lastName, firstName])
+  @@index([phone])
+  @@index([createdAt])
+  @@index([createdById])
+}
+
+model Appointment {
+  // SQL migration enforces clinician/patient [start,end) exclusion constraints
+  // for SCHEDULED, CONFIRMED and CHECKED_IN. Preserve them in future migrations.
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference          String            @unique @default(dbgenerated("('AP-'::text || upper((gen_random_uuid())::text))")) @db.VarChar(39)
+  patientId          String            @db.Uuid
+  patient            Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  clinicianId        String?           @db.Uuid
+  clinician          StaffUser?        @relation("AppointmentClinician", fields: [clinicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  scheduledStart     DateTime          @db.Timestamptz(3)
+  scheduledEnd       DateTime          @db.Timestamptz(3)
+  type               AppointmentType
+  status             AppointmentStatus @default(SCHEDULED)
+  reason             String?           @db.VarChar(500)
+  notes              String?
+  cancelledAt        DateTime?         @db.Timestamptz(3)
+  cancelledById      String?           @db.Uuid
+  cancelledBy        StaffUser?        @relation("AppointmentCanceller", fields: [cancelledById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  cancellationReason String?           @db.VarChar(500)
+  createdById        String            @db.Uuid
+  createdBy          StaffUser         @relation("AppointmentCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime          @default(now()) @updatedAt @db.Timestamptz(3)
+  encounter          Encounter?
+  notifications      Notification[]
+
+  // Required by the composite FK that prevents cross-patient encounters.
+  @@unique([id, patientId])
+  @@index([patientId, scheduledStart])
+  @@index([clinicianId, scheduledStart])
+  @@index([status, scheduledStart])
+  @@index([scheduledStart])
+  @@index([createdById])
+  @@index([cancelledById])
+}
+
+model Encounter {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference      String               @unique @default(dbgenerated("('MR-'::text || upper((gen_random_uuid())::text))")) @db.VarChar(39)
+  patientId      String               @db.Uuid
+  patient        Patient              @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  appointmentId  String?              @db.Uuid
+  appointment    Appointment?         @relation(fields: [appointmentId, patientId], references: [id, patientId], onDelete: Restrict, onUpdate: Restrict)
+  clinicianId    String?              @db.Uuid
+  clinician      StaffUser?           @relation("EncounterClinician", fields: [clinicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  receivedById   String?              @db.Uuid
+  receivedBy     StaffUser?           @relation("EncounterReceiver", fields: [receivedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdById    String               @db.Uuid
+  createdBy      StaffUser            @relation("EncounterCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  occurredAt     DateTime             @default(now()) @db.Timestamptz(3)
+  status         EncounterStatus      @default(DRAFT)
+  roomLabel      String?              @db.VarChar(100)
+  historySummary String?
+  clinicalNotes  String?
+  treatmentPlan  String?
+  followUpAt     DateTime?            @db.Timestamptz(3)
+  reviewedAt     DateTime?            @db.Timestamptz(3)
+  voidedAt       DateTime?            @db.Timestamptz(3)
+  voidReason     String?              @db.VarChar(500)
+  createdAt      DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime             @default(now()) @updatedAt @db.Timestamptz(3)
+  complaints     EncounterComplaint[]
+  diagnoses      Diagnosis[]
+  amendments     EncounterAmendment[]
+
+  @@unique([appointmentId, patientId])
+  @@index([patientId, occurredAt])
+  @@index([clinicianId, occurredAt])
+  @@index([createdById])
+  @@index([receivedById])
+}
+
+// Append-only through SQL triggers; no updatedAt or amendment update/delete API.
+model EncounterAmendment {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  encounterId String    @db.Uuid
+  encounter   Encounter @relation(fields: [encounterId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  authorId    String    @db.Uuid
+  author      StaffUser @relation(fields: [authorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  reason      String    @db.VarChar(1000)
+  content     String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([encounterId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model EncounterComplaint {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  encounterId String    @db.Uuid
+  encounter   Encounter @relation(fields: [encounterId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  description String    @db.VarChar(200)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([encounterId, description])
+}
+
+model Diagnosis {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  encounterId String    @db.Uuid
+  encounter   Encounter @relation(fields: [encounterId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  description String    @db.VarChar(500)
+  code        String?   @db.VarChar(64)
+  notes       String?
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@index([encounterId])
+}
+
+model Notification {
+  id         String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  senderId   String                  @db.Uuid
+  sender     StaffUser               @relation(fields: [senderId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  type       NotificationType
+  targetRole StaffRole?
+  title      String                  @db.VarChar(200)
+  message    String                  @db.VarChar(5000)
+  createdAt  DateTime                @default(now()) @db.Timestamptz(3)
+  recipients NotificationRecipient[]
+
+  appointmentId String?    @db.Uuid
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([senderId, createdAt])
+  @@index([appointmentId])
+}
+
+model NotificationRecipient {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  notificationId String       @db.Uuid
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  staffUserId    String       @db.Uuid
+  staffUser      StaffUser    @relation(fields: [staffUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  readAt         DateTime?    @db.Timestamptz(3)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@unique([notificationId, staffUserId])
+  @@index([staffUserId, readAt, createdAt])
+  @@index([staffUserId, createdAt, id])
+}
+
+model AuditEvent {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId    String?         @db.Uuid
+  actor      StaffUser?      @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  action     AuditAction
+  entityType AuditEntityType
+  entityId   String          @db.Uuid
+  requestId  String?         @db.VarChar(128)
+  ipAddress  String?         @db.Inet
+  userAgent  String?         @db.VarChar(512)
+  metadata   Json?           @db.JsonB
+  createdAt  DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
