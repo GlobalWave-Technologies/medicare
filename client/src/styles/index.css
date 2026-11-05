@@ -1,5 +1,5 @@
-:root { font-family: 'DM Sans', 'Segoe UI', sans-serif; color: #1d3040; background: #f5f8fb; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+:root { font-family: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif; color: #233c49; background: #f3f6f8; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: min(320px, 100%); }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }

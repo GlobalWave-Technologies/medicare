@@ -1,20 +1,15 @@
-import { ChevronLeft } from 'lucide-react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
-export function Pagination({ currentPage, pageCount, total, pageSize, onPageChange }: { currentPage: number; pageCount: number; total: number; pageSize: number; onPageChange: (page: number) => void }) {
-  const firstItem = total === 0 ? 0 : (currentPage - 1) * pageSize + 1
-  const lastItem = Math.min(currentPage * pageSize, total)
-
-  return (
-    <div className="pagination">
-      <span>Showing {firstItem}-{lastItem} of {total}</span>
-      <div>
-        <button className="pagination-button" disabled={currentPage === 1} onClick={() => onPageChange(currentPage - 1)} aria-label="Previous page"><ChevronLeft size={15} /></button>
-        {Array.from({ length: pageCount }, (_, index) => index + 1).map((page) => (
-          <button className={`pagination-button ${page === currentPage ? 'active' : ''}`} key={page} onClick={() => onPageChange(page)}>{page}</button>
-        ))}
-        <button className="pagination-button" disabled={currentPage === pageCount} onClick={() => onPageChange(currentPage + 1)} aria-label="Next page"><ChevronRight size={15} /></button>
-      </div>
-    </div>
-  )
+export type PageInfo = { page: number; limit: number; total: number; totalPages: number }
+// One pager for every list: the count always reads the same way, and page controls appear only when there is more than one page.
+export function Pagination({ pagination, onPage, label }: { pagination: PageInfo; onPage: (page: number) => void; label: string }) {
+  if (pagination.total === 0) return null
+  const pages = Math.max(1, pagination.totalPages)
+  return <nav className="pagination" aria-label={label}>
+    <span>{pagination.total.toLocaleString()} result{pagination.total === 1 ? '' : 's'} · Page {pagination.page} of {pages}</span>
+    {(pages > 1 || pagination.page > 1) && <>
+      <button type="button" className="button button-ghost" disabled={pagination.page <= 1} onClick={() => onPage(pagination.page - 1)}><ChevronLeft size={17} aria-hidden="true" />Previous</button>
+      <button type="button" className="button button-ghost" disabled={pagination.page >= pagination.totalPages} onClick={() => onPage(pagination.page + 1)}>Next<ChevronRight size={17} aria-hidden="true" /></button>
+    </>}
+  </nav>
 }

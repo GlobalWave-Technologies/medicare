@@ -54,9 +54,9 @@ export function createApp(dependencies: AppDependencies) {
       else callback(new AppError(403, 'ORIGIN_NOT_ALLOWED', 'Origin is not allowed'))
     },
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-CSRF-Token', 'Idempotency-Key'],
     credentials: true,
-    exposedHeaders: ['X-Request-Id'],
+    exposedHeaders: ['X-Request-Id', 'Retry-After'],
     maxAge: 600,
   }))
   app.use(express.json({ limit: '100kb', strict: true }))

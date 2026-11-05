@@ -49,6 +49,7 @@ describe('migrated relational domain', () => {
       '20261004140000_clinical_encounter_integrity',
       '20261009120000_notification_workflow',
       '20261010120000_reporting_query_support',
+      '20261104120000_mutation_idempotency',
     ])
     expect(migrations.every((migration) => migration.finished_at instanceof Date)).toBe(true)
   })
@@ -151,7 +152,7 @@ describe('migrated relational domain', () => {
     await expect(prisma.patient.update({ where: { id: patientId }, data: { createdAt: new Date('1990-01-01') } })).rejects.toThrow()
     const columns = await prisma.$queryRaw<Array<{ data_type: string }>>`
       SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'createdAt'`
-    expect(columns).toHaveLength(11)
+    expect(columns).toHaveLength(12)
     expect(columns.every((column) => column.data_type === 'timestamp with time zone')).toBe(true)
   })
 

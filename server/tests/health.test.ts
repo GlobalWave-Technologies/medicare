@@ -81,12 +81,13 @@ describe('health and HTTP foundation', () => {
     expect(checkDatabase).not.toHaveBeenCalled()
   })
 
-  it('allows only the configured browser origin and exposes the correlation header', async () => {
+  it('allows only the configured browser origin and exposes support and rate-limit headers', async () => {
     const { app } = setup()
     const response = await request(app).options('/api/v1/health')
       .set('Origin', 'https://client.example.test').set('Access-Control-Request-Method', 'GET').expect(204)
     expect(response.headers['access-control-allow-origin']).toBe('https://client.example.test')
-    expect(response.headers['access-control-expose-headers']).toBe('X-Request-Id')
+    expect(response.headers['access-control-expose-headers']).toBe('X-Request-Id,Retry-After')
+    expect(response.headers['access-control-allow-credentials']).toBe('true')
     const blocked = await request(app).get('/api/v1/health').set('Origin', 'https://untrusted.example.test').expect(403)
     expect(blocked.body.error.code).toBe('ORIGIN_NOT_ALLOWED')
     expect(blocked.headers['access-control-allow-origin']).toBeUndefined()

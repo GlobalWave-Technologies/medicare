@@ -5,6 +5,7 @@ import { assertPermission, type Permission } from '../../shared/authorization/pe
 import { appendAuditEvent } from '../../shared/audit/audit.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { paginationWindow } from '../../shared/utils/pagination.js'
+import { idempotent, type IdempotencyScope } from '../../shared/idempotency/idempotency.js'
 import { patientSelect, type PatientDemographics } from './patient.dto.js'
 import { normalizePhone, type CreatePatientInput, type UpdatePatientInput, type PatientQuery } from './patient.validation.js'
 
@@ -48,20 +49,27 @@ async function rejectProbableDuplicate(tx: Prisma.TransactionClient,
   if (match) throw new AppError(409, 'POSSIBLE_DUPLICATE_PATIENT', 'A possible duplicate requires staff review')
 }
 
-export async function createPatient(db: PrismaClient, auth: AuthContext, context: AuditContext, input: CreatePatientInput) {
+// The values createPatient writes; used as the idempotency request fingerprint.
+export const patientFingerprint = (input: CreatePatientInput) => ({ firstName: input.firstName, middleName: input.middleName ?? null,
+  lastName: input.lastName, dateOfBirth: input.dateOfBirth ?? null, phone: input.phone ?? null })
+
+export async function createPatient(db: PrismaClient, auth: AuthContext, context: AuditContext, input: CreatePatientInput, idempotency?: IdempotencyScope) {
   try {
-    return await patientTransaction(db, auth, 'PATIENT_CREATE', true, async (tx) => {
-      const data = {
-        firstName: input.firstName, middleName: input.middleName ?? null, lastName: input.lastName,
-        dateOfBirth: input.dateOfBirth ? new Date(`${input.dateOfBirth}T00:00:00.000Z`) : null,
-        phone: input.phone ?? null, createdById: auth.principal.id,
-      }
-      await rejectProbableDuplicate(tx, data)
-      const patient = await tx.patient.create({ data, select: patientSelect })
-      await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'PATIENT_CREATED',
-        entityType: 'PATIENT', entityId: patient.id, metadata: { source: 'API' } })
-      return patient
-    })
+    return await patientTransaction(db, auth, 'PATIENT_CREATE', true, (tx) => idempotent(tx, idempotency,
+      // A resent registration returns the patient it created, before the duplicate check would refuse it.
+      (stored) => tx.patient.findUniqueOrThrow({ where: { id: stored.patientId! }, select: patientSelect }),
+      async () => {
+        const data = {
+          firstName: input.firstName, middleName: input.middleName ?? null, lastName: input.lastName,
+          dateOfBirth: input.dateOfBirth ? new Date(`${input.dateOfBirth}T00:00:00.000Z`) : null,
+          phone: input.phone ?? null, createdById: auth.principal.id,
+        }
+        await rejectProbableDuplicate(tx, data)
+        const patient = await tx.patient.create({ data, select: patientSelect })
+        await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'PATIENT_CREATED',
+          entityType: 'PATIENT', entityId: patient.id, metadata: { source: 'API' } })
+        return { value: patient, resource: { patientId: patient.id } }
+      }))
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new AppError(409, 'PATIENT_IDENTIFIER_CONFLICT', 'Patient identifier conflict; retry registration')

@@ -5,7 +5,8 @@ import { requirePermission } from '../../middleware/authorization.js'
 import { authContext, auditContext } from '../auth/auth.context.js'
 import { toPatientResponse } from './patient.dto.js'
 import { createPatientSchema, updatePatientSchema, patientIdSchema, patientQuerySchema, patientCommandSchema } from './patient.validation.js'
-import { createPatient, listPatients, getPatientById, updatePatient, archivePatient, reactivatePatient } from './patient.service.js'
+import { createPatient, listPatients, getPatientById, updatePatient, archivePatient, reactivatePatient, patientFingerprint } from './patient.service.js'
+import { idempotencyScope, markReplay } from '../../shared/idempotency/idempotency.js'
 
 import { encounterHistoryParamsSchema, encounterHistoryQuerySchema } from '../encounters/encounter.validation.js'
 import { listEncounters } from '../encounters/encounter.service.js'
@@ -21,8 +22,11 @@ export function patientRoutes(db: PrismaClient, origin: string) {
     res.json({ success: true, data: { items: result.items.map(toEncounterSummary), pagination: result.pagination } })
   })
   router.post('/', requirePermission('PATIENT_CREATE'), async (req, res) => {
-    const patient = await createPatient(db, authContext(req), auditContext(req), createPatientSchema.parse(req.body))
-    res.status(201).json({ success: true, data: { patient: toPatientResponse(patient) } })
+    const auth = authContext(req), input = createPatientSchema.parse(req.body)
+    const scope = idempotencyScope(req, auth.principal.id, 'PATIENT_CREATE', patientFingerprint(input))
+    const { value, replayed } = await createPatient(db, auth, auditContext(req), input, scope)
+    markReplay(req, res, scope, replayed)
+    res.status(201).json({ success: true, data: { patient: toPatientResponse(value) } })
   })
   router.get('/', requirePermission('PATIENT_READ'), async (req, res) => {
     const result = await listPatients(db, patientQuerySchema.parse(req.query))

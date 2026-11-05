@@ -117,8 +117,10 @@ not editable or amendable through this API; this step provides no void operation
 PATCH accepts only the editable fields above and requires a nonempty object.
 Omitted fields remain unchanged. A supplied complaints or diagnoses array replaces
 that entire collection atomically; an empty array clears it. Replacement can change
-child IDs. This applies only to drafts; prior draft content is not versioned,
-although each successful edit records an audit event.
+child IDs. Complaints and diagnoses are returned in the order they were supplied;
+each written child receives a distinct creation timestamp in entry order. This
+applies only to drafts; prior draft content is not versioned, although each
+successful edit records an audit event.
 
 Finalization accepts an empty object or no body. At least one nonempty clinical
 note, history summary, treatment plan, complaint or diagnosis is required. Room
@@ -147,8 +149,17 @@ parent and original author. Amendments themselves cannot be updated, deleted or
 truncated. Original encounter content, review time and even updatedAt remain
 unchanged. Detail responses include the full ordered amendment history. An
 amendment is additional text, not a silent replacement of structured diagnoses.
-Repeated successful amendment POSTs create separate entries; no idempotency key
-or automatic text deduplication is implemented.
+Distinct amendment POSTs create separate entries; an identical resend is rejected
+(see below). Amendments take no `Idempotency-Key`.
+
+`POST /encounters` (linked or walk-in) accepts an optional `Idempotency-Key`; see
+[mutation idempotency](idempotency.md). The same doctor resending the same accepted
+draft with the same key within 24 hours receives the encounter it created (`201`,
+`Idempotency-Replayed: true`). No second `MEDICAL_RECORD_CREATED` and no view audit
+are written. Changed content under the same key returns `409 IDEMPOTENCY_KEY_REUSED`.
+Only a keyed HMAC of the accepted fields is stored, never clinical text. A different
+key, or none, for an appointment that already has an encounter still returns
+`APPOINTMENT_ALREADY_HAS_ENCOUNTER`.
 
 ## Queries and DTOs
 
@@ -226,8 +237,11 @@ Invalid schemas use 400 VALIDATION_ERROR; invalid clinical times use 400
 INVALID_ENCOUNTER_TIME. Business conflicts use 409 PATIENT_ARCHIVED,
 APPOINTMENT_NOT_ELIGIBLE_FOR_ENCOUNTER, APPOINTMENT_ALREADY_HAS_ENCOUNTER,
 ENCOUNTER_REFERENCE_CONFLICT, ENCOUNTER_FINALIZED, ENCOUNTER_NOT_EDITABLE,
-EMPTY_CLINICAL_RECORD or ENCOUNTER_NOT_FINALIZED. Unexpected failures use the
-existing safe 500 INTERNAL_ERROR envelope.
+EMPTY_CLINICAL_RECORD, ENCOUNTER_NOT_FINALIZED or DUPLICATE_AMENDMENT. An
+amendment whose author, reason and content exactly match an existing amendment on
+the same encounter is rejected, so a resent request (including a browser resend
+after a dropped connection) cannot append the same permanent correction twice.
+Unexpected failures use the existing safe 500 INTERNAL_ERROR envelope.
 
 ## Migration and verification
 
@@ -271,7 +285,7 @@ explicitly. Frontend files, mocks, forms, authentication and behavior are unchan
 
 Remaining decisions include narrower doctor visibility, delegated correction when
 an author is unavailable, draft revision history, pagination of large amendment
-histories, idempotent mutation retries, deployment privileges, retention, encrypted
+histories, idempotency for clients that send no key, deployment privileges, retention, encrypted
 backups and operational monitoring. Patient/staff display names are current related
 identity fields rather than historical name snapshots. The detail endpoint returns
 all amendments, so its size can grow. Database owners can disable triggers; use

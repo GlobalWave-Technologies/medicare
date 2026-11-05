@@ -20,6 +20,7 @@ import {
   FileText,
   LayoutDashboard,
   UsersRound,
+  ShieldCheck,
 } from 'lucide-react'
 
 type NavItem = {
@@ -45,8 +46,8 @@ export const navItemsByRole: Record<
       icon: CalendarDays,
     },
     {
-      label: 'Medical records',
-      icon: FileText,
+      label: 'Staff',
+      icon: ShieldCheck,
     },
     {
       label: 'Reports',
@@ -60,6 +61,10 @@ export const navItemsByRole: Record<
 
   'Records Officer': [
     {
+      label: 'Overview',
+      icon: LayoutDashboard,
+    },
+    {
       label: 'Patients',
       icon: UsersRound,
     },
@@ -68,8 +73,8 @@ export const navItemsByRole: Record<
       icon: CalendarDays,
     },
     {
-      label: 'Medical records',
-      icon: FileText,
+      label: 'Reports',
+      icon: ClipboardList,
     },
     {
       label: 'Notifications',
@@ -95,10 +100,20 @@ export const navItemsByRole: Record<
       icon: FileText,
     },
     {
+      label: 'Reports',
+      icon: ClipboardList,
+    },
+    {
       label: 'Notifications',
       icon: Bell,
     },
   ],
+}
+
+// Display names for each workspace. View keys stay stable; people see these names in navigation and headings.
+export const viewLabels: Record<View, string> = {
+  Overview: 'Overview', Patients: 'Patients', Appointments: 'Appointments', 'Medical records': 'Medical Records',
+  Staff: 'Staff & Access', Reports: 'Reports', Notifications: 'Notifications',
 }
 
 export const roleLabels: Record<

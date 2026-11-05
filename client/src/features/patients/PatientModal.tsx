@@ -1,242 +1,57 @@
-import { useState, type FormEvent } from 'react'
-import {
-  CalendarDays,
-  Phone,
-  UserRound,
-  X,
-} from 'lucide-react'
-import {
-  ApiError,
-  patientsApi,
-  type Patient,
-} from '../../lib/api'
-import './patients.css'
+import { useUnsavedChanges } from '../../components/ui/useUnsavedChanges'
+import { useRef, useState, type FormEvent } from 'react'
+import type { BackendRole } from '../../api/auth'
+import { patientsApi, type Patient } from '../../api/patients'
+import { submissionKeys } from '../../api/idempotency'
+import { PatientDialog } from './PatientDialog'
+import { PatientFeedback } from './PatientFeedback'
+import { canManagePatients, changedInput, formInput, formValues, todayDate, validatePatientForm, type PatientFormValues } from './patient-utils'
 
-type PatientModalProps = {
-  onClose: () => void
-  onCreated?: (patient: Patient) => void
-}
-
-export function PatientModal({
-  onClose,
-  onCreated,
-}: PatientModalProps) {
-  const [firstName, setFirstName] = useState('')
-  const [middleName, setMiddleName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [dateOfBirth, setDateOfBirth] = useState('')
-  const [phone, setPhone] = useState('')
-
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  async function handleSubmit(
-    event: FormEvent<HTMLFormElement>,
-  ) {
+type Props = { role: BackendRole; patient?: Patient; onClose: () => void; onCreated: (patient: Patient) => void }
+export function PatientModal({ role, patient, onClose, onCreated }: Props) {
+  const [initial] = useState(() => formValues(patient))
+  const [values, setValues] = useState(initial)
+  const dirty = JSON.stringify(values) !== JSON.stringify(initial)
+  useUnsavedChanges(dirty)
+  const [saving, setSaving] = useState(false), [error, setError] = useState<unknown>(null)
+  const inFlight = useRef(false), [keys] = useState(submissionKeys)
+  const close = () => { if (!inFlight.current && (!dirty || window.confirm('Discard unsaved patient changes?'))) onClose() }
+  const maxDate = patient ? [todayDate(), patient.createdAt.slice(0, 10)].sort()[0] : todayDate()
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (saving) return
-
-    setSaving(true)
-    setError('')
-
+    if (inFlight.current || !canManagePatients(role) || patient?.archivedAt) return
+    const invalid = validatePatientForm(values, maxDate)
+    if (invalid) { setError(invalid); return }
+    const changes = patient ? changedInput(values, initial) : undefined
+    if (changes && !Object.keys(changes).length) { setError('No changes to save.'); return }
+    inFlight.current = true; setSaving(true); setError(null)
     try {
-      const result = await patientsApi.create({
-        firstName: firstName.trim(),
-        middleName: middleName.trim() || null,
-        lastName: lastName.trim(),
-        dateOfBirth: dateOfBirth || null,
-        phone: phone.trim() || null,
-      })
-
-      onCreated?.(result.patient)
-      onClose()
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 403) {
-          setError(
-            'You do not have permission to register patients.',
-          )
-        } else if (error.code === 'VALIDATION_ERROR') {
-          setError(
-            'Please check the patient details and try again.',
-          )
-        } else {
-          setError(error.message)
-        }
-      } else {
-        setError(
-          'Unable to save the patient. Please check the server connection.',
-        )
-      }
-    } finally {
-      setSaving(false)
-    }
+      const input = formInput(values)
+      const result = patient ? await patientsApi.update(patient.id, changes!) : await patientsApi.create(input, keys.key(input))
+      keys.settle(); onCreated(result.patient); onClose()
+    } catch (failure) { keys.settle(failure); setError(failure) }
+    finally { inFlight.current = false; setSaving(false) }
   }
-
-  return (
-    <div
-      className="modal-backdrop patient-modal-backdrop"
-      onClick={onClose}
-    >
-      <div
-        className="modal patient-modal"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <form onSubmit={handleSubmit}>
-          <div className="modal-header patient-modal-header">
-            <div>
-              <p className="eyebrow">
-                PATIENT REGISTRATION
-              </p>
-
-              <h2>Add a new patient</h2>
-
-              <p className="patient-modal-subtitle">
-                Create a secure hospital record. Clinical details
-                can be added later during an encounter.
-              </p>
-            </div>
-
-            <button
-              className="icon-btn patient-modal-close"
-              type="button"
-              onClick={onClose}
-              aria-label="Close patient registration"
-            >
-              <X size={19} />
-            </button>
-          </div>
-
-          <div className="patient-form-section">
-            <div className="patient-form-section-title">
-              <UserRound size={16} />
-              <span>Identity</span>
-            </div>
-
-            <div className="form-grid patient-form-grid">
-              <label>
-                First name
-
-                <input
-                  value={firstName}
-                  onChange={(event) =>
-                    setFirstName(event.target.value)
-                  }
-                  placeholder="e.g. Amina"
-                  maxLength={100}
-                  autoFocus
-                  required
-                />
-              </label>
-
-              <label>
-                Middle name
-
-                <input
-                  value={middleName}
-                  onChange={(event) =>
-                    setMiddleName(event.target.value)
-                  }
-                  placeholder="Optional"
-                  maxLength={100}
-                />
-              </label>
-
-              <label>
-                Last name
-
-                <input
-                  value={lastName}
-                  onChange={(event) =>
-                    setLastName(event.target.value)
-                  }
-                  placeholder="e.g. Yusuf"
-                  maxLength={100}
-                  required
-                />
-              </label>
-
-              <label>
-                Date of birth
-
-                <div className="patient-input-icon">
-                  <CalendarDays size={16} />
-
-                  <input
-                    type="date"
-                    value={dateOfBirth}
-                    max={new Date()
-                      .toISOString()
-                      .slice(0, 10)}
-                    onChange={(event) =>
-                      setDateOfBirth(event.target.value)
-                    }
-                  />
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div className="patient-form-section">
-            <div className="patient-form-section-title">
-              <Phone size={16} />
-              <span>Contact</span>
-            </div>
-
-            <div className="form-grid patient-form-grid">
-              <label className="wide">
-                Phone number
-
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(event) =>
-                    setPhone(event.target.value)
-                  }
-                  placeholder="+233 50 123 4567"
-                  maxLength={64}
-                />
-
-                <small className="field-helper">
-                  Ghana numbers may be entered as
-                  0501234567 or +233501234567.
-                </small>
-              </label>
-            </div>
-          </div>
-
-          {error && (
-            <div
-              className="patient-modal-error"
-              role="alert"
-            >
-              {error}
-            </div>
-          )}
-
-          <div className="modal-footer patient-modal-footer">
-            <button
-              className="button button-ghost"
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-            >
-              Cancel
-            </button>
-
-            <button
-              className="button button-primary"
-              type="submit"
-              disabled={saving}
-            >
-              {saving
-                ? 'Registering patient…'
-                : 'Register patient'}
-            </button>
-          </div>
-        </form>
+  if (!canManagePatients(role) || patient?.archivedAt) return null
+  const change = (key: keyof PatientFormValues, value: string) => setValues((current) => ({ ...current, [key]: value }))
+  return <PatientDialog title={patient ? 'Edit patient details' : 'Add a new patient'} busy={saving} onClose={close}>
+    <form onSubmit={submit} aria-busy={saving}>
+      <p className="form-intro">Demographic details only. First and last names are required.</p>
+      <fieldset disabled={saving} className="patient-fields">
+        <div className="form-grid patient-form-grid">
+          <label htmlFor="patient-first-name">First name<input id="patient-first-name" name="firstName" required maxLength={100} value={values.firstName} onChange={(e) => change('firstName', e.target.value)} /></label>
+          <label htmlFor="patient-middle-name">Middle name (optional)<input id="patient-middle-name" name="middleName" maxLength={100} value={values.middleName} onChange={(e) => change('middleName', e.target.value)} /></label>
+          <label htmlFor="patient-last-name">Last name<input id="patient-last-name" name="lastName" required maxLength={100} value={values.lastName} onChange={(e) => change('lastName', e.target.value)} /></label>
+          <label htmlFor="patient-dob">Date of birth (optional)<input id="patient-dob" name="dateOfBirth" type="date" aria-describedby="patient-dob-help" min="0001-01-01" max={maxDate} value={values.dateOfBirth} onChange={(e) => change('dateOfBirth', e.target.value)} /><small id="patient-dob-help" className="field-helper">Leave blank if unknown. Do not estimate a birth date.</small></label>
+          <label htmlFor="patient-phone" className="wide">Phone number (optional)<input id="patient-phone" name="phone" type="tel" aria-describedby="patient-phone-help" maxLength={64} value={values.phone} onChange={(e) => change('phone', e.target.value)} /><small id="patient-phone-help" className="field-helper">7–15 digits; include an international prefix when known.</small></label>
+        </div>
+      </fieldset>
+      {saving && <p role="status" className="loading-note">Saving patient details…</p>}
+      {error !== null && <PatientFeedback error={error} mutation={patient ? 'update' : 'create'} />}
+      <div className="modal-footer patient-modal-footer">
+        <button type="button" className="button button-ghost" disabled={saving} onClick={close}>Cancel</button>
+        <button type="submit" className="button button-primary" disabled={saving}>{saving ? 'Saving patient…' : patient ? 'Save changes' : 'Register patient'}</button>
       </div>
-    </div>
-  )
+    </form>
+  </PatientDialog>
 }

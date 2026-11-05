@@ -105,7 +105,7 @@ Every `:id` is the internal UUID, not the display patient number.
 
 | Method/path | Permission | Body/query | Success | Relevant errors |
 | --- | --- | --- | --- | --- |
-| POST `/` | PATIENT_CREATE | Required firstName/lastName; optional middleName/dateOfBirth/phone | 201; `data.patient` DTO | VALIDATION_ERROR, POSSIBLE_DUPLICATE_PATIENT, PATIENT_IDENTIFIER_CONFLICT |
+| POST `/` | PATIENT_CREATE | Required firstName/lastName; optional middleName/dateOfBirth/phone; optional `Idempotency-Key` header | 201; `data.patient` DTO | VALIDATION_ERROR, POSSIBLE_DUPLICATE_PATIENT, PATIENT_IDENTIFIER_CONFLICT, INVALID_IDEMPOTENCY_KEY, IDEMPOTENCY_KEY_REUSED |
 | GET `/` | PATIENT_READ | page, limit, search, archived | 200; `data.items` DTOs and `data.pagination` | VALIDATION_ERROR |
 | GET `/:id` | PATIENT_READ | UUID; no clinical expansions | 200; `data.patient` DTO | VALIDATION_ERROR, PATIENT_NOT_FOUND |
 | PATCH `/:id` | PATIENT_UPDATE | Nonempty subset of demographic input fields | 200; `data.patient` DTO | VALIDATION_ERROR, INVALID_PATIENT_DATA, PATIENT_NOT_FOUND, PATIENT_ARCHIVED, POSSIBLE_DUPLICATE_PATIENT |
@@ -172,6 +172,16 @@ identities; `all` returns both. These values are independent of care/queue state
 Authorized detail access includes archived patients.
 
 ## Probable duplicates
+
+Probable-duplicate detection and [request idempotency](idempotency.md) solve
+different problems. The duplicate check finds a likely second record for the same
+person. An `Idempotency-Key` recognizes a resend of the same registration request.
+A registration retried with the same key, by the same staff member, within 24 hours
+returns the patient it created (`201`, `Idempotency-Replayed: true`, no second
+audit). This replay runs before the duplicate check, which would otherwise refuse a
+resend that has date of birth and phone. The same key with different details returns
+`409 IDEMPOTENCY_KEY_REUSED`. A new key, or no key, always passes through the
+duplicate check below.
 
 There is no uniqueness constraint on names, DOB or phone. Family members can
 share contact numbers, and different people can share names and birth dates.

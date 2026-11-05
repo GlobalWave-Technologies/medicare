@@ -38,6 +38,8 @@ export async function request<T>(path: string, init: RequestInit = {}, authentic
   if (init.body) headers.set('Content-Type', 'application/json')
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'include', cache: 'no-store' })
   const payload: unknown = await response.json().catch(() => null)
+  // A cancelled restoration must not invalidate a newer mounted auth check.
+  init.signal?.throwIfAborted()
   // Late responses from an old session must not clear or populate a new session.
   if (started !== revision) throw sessionChanged()
   if (!response.ok) {
@@ -73,13 +75,15 @@ export function csrfToken(): Promise<string> {
   return pending
 }
 
-export async function mutation<T>(path: string, init: RequestInit): Promise<T> {
+// Create endpoints that support it opt in with an idempotencyKey; nothing here generates one.
+export async function mutation<T>(path: string, init: RequestInit, options: { idempotencyKey?: string } = {}): Promise<T> {
   const started = revision
   const token = await csrfToken()
   init.signal?.throwIfAborted()
   if (started !== revision) throw sessionChanged()
   const headers = new Headers(init.headers)
   headers.set('X-CSRF-Token', token)
+  if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey)
   try {
     return await request<T>(path, { ...init, headers })
   } catch (error) {
@@ -95,6 +99,7 @@ export async function mutation<T>(path: string, init: RequestInit): Promise<T> {
 export function authErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
     if (error.code === 'INVALID_CREDENTIALS') return 'Invalid email or password.'
+    if (error.code === 'VALIDATION_ERROR') return 'Please check the submitted details and try again.'
     if (error.status === 429) return error.retryAfter
       ? `Too many sign-in attempts. Try again in about ${Math.ceil(error.retryAfter / 60)} minute(s).`
       : 'Too many sign-in attempts. Please try again later.'

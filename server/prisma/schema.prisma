@@ -115,6 +115,7 @@ model StaffUser {
   notifications         NotificationRecipient[]
   auditEvents           AuditEvent[]
   sessions              StaffSession[]
+  idempotencyRecords    IdempotencyRecord[]
 
   @@index([role, status])
 }
@@ -148,6 +149,7 @@ model Patient {
   updatedAt     DateTime      @default(now()) @updatedAt @db.Timestamptz(3)
   appointments  Appointment[]
   encounters    Encounter[]
+  idempotency   IdempotencyRecord?
 
   @@index([lastName, firstName])
   @@index([phone])
@@ -219,6 +221,7 @@ model Encounter {
   complaints     EncounterComplaint[]
   diagnoses      Diagnosis[]
   amendments     EncounterAmendment[]
+  idempotency    IdempotencyRecord?
 
   @@unique([appointmentId, patientId])
   @@index([patientId, occurredAt])
@@ -278,6 +281,7 @@ model Notification {
 
   appointmentId String?    @db.Uuid
   appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  idempotency IdempotencyRecord?
 
   @@index([senderId, createdAt])
   @@index([appointmentId])
@@ -314,4 +318,32 @@ model AuditEvent {
   @@index([entityType, entityId, createdAt])
   @@index([action, createdAt])
   @@index([createdAt])
+}
+
+enum IdempotentOperation {
+  PATIENT_CREATE
+  ENCOUNTER_CREATE
+  NOTIFICATION_BROADCAST
+}
+
+// Retry protection for selected create requests. Holds hashes and the created
+// resource only; request bodies and responses are never stored.
+model IdempotencyRecord {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  principalId    String              @db.Uuid
+  principal      StaffUser           @relation(fields: [principalId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operation      IdempotentOperation
+  keyHash        String              @db.Char(64)
+  requestHash    String              @db.Char(64)
+  patientId      String?             @unique @db.Uuid
+  patient        Patient?            @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  encounterId    String?             @unique @db.Uuid
+  encounter      Encounter?          @relation(fields: [encounterId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  notificationId String?             @unique @db.Uuid
+  notification   Notification?       @relation(fields: [notificationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime            @db.Timestamptz(3)
+
+  @@unique([principalId, operation, keyHash])
+  @@index([expiresAt])
 }

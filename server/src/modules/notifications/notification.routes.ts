@@ -6,6 +6,7 @@ import { authContext, auditContext } from '../auth/auth.context.js'
 import { toInboxNotification, toNotificationContent } from './notification.dto.js'
 import { broadcastSchema, notificationQuerySchema, notificationIdSchema, notificationEmptySchema } from './notification.validation.js'
 import { listNotifications, unreadCount, getNotification, markNotificationRead, markAllNotificationsRead, broadcastNotification } from './notification.service.js'
+import { idempotencyScope, markReplay } from '../../shared/idempotency/idempotency.js'
 
 export function notificationRoutes(db: PrismaClient, origin: string) {
   const router = Router()
@@ -25,8 +26,11 @@ export function notificationRoutes(db: PrismaClient, origin: string) {
   })
   router.post('/broadcast', requirePermission('NOTIFICATION_BROADCAST'), async (req, res) => {
     notificationEmptySchema.parse(req.query)
-    const result = await broadcastNotification(db, authContext(req), auditContext(req), broadcastSchema.parse(req.body))
-    res.status(201).json({ success: true, data: { notification: toNotificationContent(result.notification), recipientCount: result.recipientCount } })
+    const auth = authContext(req), input = broadcastSchema.parse(req.body)
+    const scope = idempotencyScope(req, auth.principal.id, 'NOTIFICATION_BROADCAST', input)
+    const { value, replayed } = await broadcastNotification(db, auth, auditContext(req), input, scope)
+    markReplay(req, res, scope, replayed)
+    res.status(201).json({ success: true, data: { notification: toNotificationContent(value.notification), recipientCount: value.recipientCount } })
   })
   router.get('/:id', requirePermission('NOTIFICATION_READ_OWN'), async (req, res) => {
     notificationEmptySchema.parse(req.query)

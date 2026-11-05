@@ -169,9 +169,14 @@ existing appointment audit, shared notification and recipient commit together.
 If notification insertion fails, the business mutation and its audit roll back.
 There is no best-effort delivery or queue in this step. Repeating a transaction
 after rollback creates no duplicate surviving notification. Actual-change checks
-and existing appointment locks avoid repeat reschedule/cancel notices. Independently
-repeated broadcast POSTs are separate broadcasts; no HTTP idempotency-key protocol
-or distributed event system has been introduced.
+and existing appointment locks avoid repeat reschedule/cancel notices. Broadcast
+POSTs accept an optional `Idempotency-Key` ([mutation idempotency](idempotency.md)).
+A resend with the same key and accepted body within 24 hours returns the original
+notification and `recipientCount`. It creates no new content, deliveries or
+`NOTIFICATION_BROADCAST_CREATED` audit, even if the audience has changed since. A
+changed title, message or audience under the same key returns
+`409 IDEMPOTENCY_KEY_REUSED`. Unkeyed repeated POSTs remain separate broadcasts.
+No distributed event system has been introduced.
 
 ## Transactions, auditing and privacy
 
@@ -230,6 +235,10 @@ use the 409 codes above. Existing auth/CSRF/Origin codes, payload limits and saf
 
 ## Frontend findings and limits
 
+The findings below describe the frontend as inspected in Step 7. The local mock
+inbox and static badge have since been replaced by the real integration described in
+[notification frontend integration](frontend-notification-integration.md).
+
 At initial inspection, Notifications rendered the shared local broadcasts array.
 Broadcast has a numeric ID, title, message, audience label and display-time string;
 it has no recipient readAt, type, target or pagination. BroadcastModal collects only
@@ -245,7 +254,7 @@ preserved. Notification mocks, broadcasts and badges remain local. Future
 notification integration must independently connect ownership-scoped inboxes,
 UTC dates, UUID targets, CSRF mutations, pagination, counts and admin audiences.
 
-Remaining limits: no HTTP mutation idempotency keys, delivery receipts beyond
+Remaining limits: no idempotency for unkeyed broadcast clients, delivery receipts beyond
 readAt, retention/dismiss flow, asynchronous fan-out, external delivery, polling or
 realtime transport, full-text search or broadcast moderation. Read state is not
 proof a person understood a message. Content policy for human-authored broadcasts,

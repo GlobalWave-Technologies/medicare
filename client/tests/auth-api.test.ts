@@ -10,6 +10,26 @@ beforeEach(() => { resetApiSession(); fetcher.mockReset(); vi.stubGlobal('fetch'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('credentialed API and session contract', () => {
+  it('does not invalidate authentication when a cancelled response finishes parsing', async () => {
+    const controller = new AbortController()
+    const invalidated = vi.fn(), stop = onSessionInvalidated(invalidated)
+    let complete!: (value: unknown) => void
+    const result = response({ code: 'AUTHENTICATION_REQUIRED' }, 401)
+    vi.spyOn(result, 'json').mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    fetcher.mockResolvedValueOnce(result)
+    try {
+      const pending = authApi.me(controller.signal)
+      await vi.waitFor(() => expect(result.json).toHaveBeenCalled())
+      controller.abort()
+      complete({ success: false, error: { code: 'AUTHENTICATION_REQUIRED' } })
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      expect(invalidated).not.toHaveBeenCalled()
+    } finally { stop() }
+  })
+  it('shows safe validation feedback without presenting it as a network failure', () => {
+    expect(authErrorMessage(new ApiError(400, 'Invalid request data', 'VALIDATION_ERROR')))
+      .toBe('Please check the submitted details and try again.')
+  })
   it('logs in using email/password only, with credentials and no CSRF request', async () => {
     fetcher.mockResolvedValueOnce(response({ user }))
     expect(await authApi.login(' staff@example.test ', ' secret password ')).toEqual({ user })

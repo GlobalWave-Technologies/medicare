@@ -43,8 +43,22 @@ Read-state mutations serialize per inbox and preserve the first read time. Simpl
 reads/counts avoid interactive transactions. Appointment assignment, actual
 rescheduling/reassignment and cancellation create generic notices within their
 existing transactions. A typed restrictive appointment FK supplies navigation
-without patient data or extra resource privileges. There is no external delivery,
-background worker or frontend notification integration in Step 7.
+without patient data or extra resource privileges. There is no external delivery
+or background worker. The
+[notification frontend](frontend-notification-integration.md) consumes this API.
+
+Patient registration, encounter creation and broadcasts accept an optional
+`Idempotency-Key` ([mutation idempotency](idempotency.md)). `shared/idempotency`
+validates the header and stores only a key digest and a keyed digest of the
+accepted input in `IdempotencyRecord`. Each record is scoped to the signed-in
+staff account and operation, and links to the created resource. It is written in
+the same transaction as the resource and audit, after the existing auth, CSRF and
+permission checks. A per-scope advisory lock and a unique index make concurrent
+resends replay instead of writing twice. Replays return the same resource with
+`201` and `Idempotency-Replayed: true`, and write no audit. Records expire after
+24 hours and are pruned by `npm run idempotency:prune`. The frontend's
+`submissionKeys()` keeps one in-memory key per payload, reuses it only after an
+unconfirmed outcome and never retries on its own.
 
 Configuration is centralized in `server/src/config/env.ts`. The singleton Prisma
 client uses the PostgreSQL adapter. The domain schema now separates staff,
@@ -72,18 +86,54 @@ dashboard and operational report reads do not emit audits. See
 There is no reporting cache, worker, export, realtime channel or UI integration.
 
 The audit browsing module remains future work. Create module directories as code is added.
-Keep HTTP controllers thin, business rules in services, and persistence in
-repositories. Frontend integration remains deferred.
+Keep HTTP controllers thin and business rules in services. Frontend authentication
+is integrated; see [frontend authentication](frontend-auth-integration.md).
+Patient demographics UI is integrated; see [frontend patient integration](frontend-patient-integration.md).
+The patient API module uses shared transport and keeps compatibility exports for
+existing appointment callers. Appointment UI integration is complete; see
+[frontend appointment integration](frontend-appointment-integration.md).
+`api/appointments.ts` owns typed DTOs and read/mutation transport, with runtime
+mutation field allowlists and compatibility re-exports from `lib/api.ts`.
+Focused appointment list, form, lookup, detail and cancellation components use
+server responses, abort stale reads and refresh affected lists after writes.
+The patient picker reuses the active-patient API with bounded backend pagination;
+the dedicated appointment clinician lookup returns active doctors to Admin/Records.
+Doctors receive an own-assignment view and status actions only. Local timestamp
+conversion is separate from patient DOB helpers and tested across DST changes.
+Clinical UI integration is complete; see
+[frontend clinical integration](frontend-clinical-integration.md).
+`api/encounters.ts` maps the existing summary/detail DTOs and allowlists mutations
+through shared credentialed, CSRF-protected transport. Doctor-only component and
+navigation guards prevent Admin/Records clinical fetching. Patient history loads
+only after explicit entry; own appointment detail discovers a linked record using
+the existing `appointmentId` encounter filter. In-memory navigation retains patient
+and appointment context. Draft editing requires both clinician and author identity;
+`REVIEWED` is presented as Finalized and original content stays read-only.
+Amendments are separate permanent entries, never replacement notes. Clinical state
+is memory-only, with manual saves, server-confirmed writes and no payload logging.
+The notification center reads only the signed-in account's inbox. One unread-count
+hook in the application shell feeds the navigation badge and the inbox summary; it
+refreshes on sign-in, navigation, deliberate refresh and read-state changes, never by
+polling. Opening an unread notice marks it read and shows the server's `readAt`.
+Appointment targets open the existing authorized appointment detail. Broadcast
+composition is ADMIN-only. Notification text renders as plain React text.
+Overview and Reports are described under Backend integration below.
 
 ## Frontend conventions
 
-- `app/` owns application composition, navigation, and demo session state.
+- `app/` owns application composition and navigation derived from backend roles.
+- `api/` owns credentialed transport, in-memory CSRF and safe auth DTOs;
+  `features/auth/` owns the auth store, login and protected application gate.
 - `features/<domain>/` owns feature screens and forms. Add feature-specific
   hooks, API calls, and tests alongside their implementations.
-- `components/` contains UI and branding reused across features.
+- `components/` contains UI reused across features: the `Brand` wordmark, `Dialog`
+  (compact, standard and wide sizes), `Pagination`, `LoadingRows` and the error boundary.
 - `types/` contains shared frontend types, not a server API contract.
-- `mocks/` contains demonstration data to replace during API integration.
-- `styles/` preserves existing global styles.
+- `styles/App.css` owns the design system: colour, radius, shadow and type tokens, and the
+  shared shell, button, field, badge, feedback, empty, loading, table, card, segmented-control,
+  pager and dialog styles. Feature stylesheets hold only their own layouts. Appointment
+  status tones are shared by badges and report markers (see the
+  [final UI/UX review](final-ui-ux-review.md)).
 
 Use direct imports, PascalCase component files, and camelCase utilities. Create
 directories when they have real contents. Run `npm run lint` and `npm run build`
@@ -92,10 +142,28 @@ before submitting changes.
 ## Backend integration
 
 Keep database access, authorization, secrets, and business rules on the server.
-Browser navigation rules only control presentation. The current login accepts
-a selected role without authentication, patient registration stores partial data
-in local storage, and several actions are placeholders. These behaviors are
-unchanged by this reorganization and must be replaced during integration.
+Browser navigation rules only control presentation. Login accepts email/password
+only and restores identity from `/auth/me`; no browser storage is trusted for
+authentication. AuthGate waits for restoration before displaying protected content.
+The API client invalidates auth on authenticated 401 responses and preserves it
+on 403. Patient list/detail/forms use real demographic DTOs, role-aware actions and
+shared CSRF; clinical mocks are never attached to real patient details. Appointments and clinical encounters use their integrated API workflows.
+Notifications use the integrated inbox and broadcast API. Staff & Access is an
+Admin-only workspace over the staff API: it is gated before any staff request, keeps
+only the safe staff DTO fields, never stores the directory or initial passwords, waits
+for the server before showing any role, status or session change, and returns to sign-in
+when an administrator's change ends their own session (see
+[staff administration frontend](frontend-staff-administration.md)). Overview and Reports use the aggregate API through
+read-only, runtime-validated `dashboardApi`/`reportsApi` modules. The server chooses the
+dashboard from the session, and the frontend sends only a paired UTC `from`/`to` and a
+bucket. Responses are rebuilt from documented counts and rates, reads are keyed and
+abortable, and nothing is cached in browser storage or polled. UTC reporting dates are
+formatted with `timeZone: 'UTC'`, and charts are dependency-free SVG with text summaries
+and data tables (see [dashboard and reports frontend](frontend-dashboard-reports.md)). Shared dialogs
+provide focus management, background inertness and scroll locking. The root error
+boundary offers recovery and logs only a fixed non-sensitive failure message. Choosing a
+workspace from the navigation always opens its landing view.
+See [product stabilization audit](product-ui-ux-audit.md).
 
 Commit safe `.env.example` placeholders when configuration is introduced.
 Local `.env` files are ignored. Never put secrets in browser-exposed configuration.

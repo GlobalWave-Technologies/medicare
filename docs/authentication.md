@@ -3,8 +3,18 @@
 The backend now authenticates staff using PostgreSQL sessions. The existing
 Argon2id password utilities, append-only audits, bootstrap CLI, request IDs,
 safe errors, database pool and health/lifecycle behavior remain in use. The
-frontend still uses simulated login and its role selector; it does not call
-these endpoints. Clinical permissions and clinical/domain CRUD are deferred.
+frontend now uses these endpoints for email/password login, session restoration
+and logout, with backend roles as its identity source. See
+[frontend authentication integration](frontend-auth-integration.md). Later backend
+steps add clinical permissions and domain APIs.
+
+The Admin-only Staff & Access workspace uses the staff routes below without any
+backend change. It shows only the safe staff DTO and creates accounts with the
+administrator-entered staff number and initial password. It offers only the lifecycle
+transitions listed here. It explains last-admin and other refusals, and returns to
+sign-in after a self change ends the current session. Password reset, forced change and
+credential provisioning for pending accounts remain unimplemented. See the
+[staff administration frontend](frontend-staff-administration.md).
 
 ## Sessions and cookies
 
@@ -46,12 +56,12 @@ This implementation uses the session-bound synchronizer pattern described in
 Every session stores an independent random 32-byte CSRF token, retrievable through
 authenticated `GET /api/v1/auth/csrf`. It returns
 `{ "success": true, "data": { "csrfToken": "..." } }`. This token is deliberately
-readable by the future frontend and cannot authenticate a request by itself.
+readable by the frontend and cannot authenticate a request by itself.
 It contains neither the session authentication token nor its hash. It is stored
 as a synchronizer value, not a password or authentication bearer token.
 
-The frontend integration will use credentialed fetch, retain CSRF in memory,
-and send it in `X-CSRF-Token` on authenticated POST/PUT/PATCH/DELETE requests.
+The frontend uses credentialed fetch, retains CSRF in memory,
+and sends it in `X-CSRF-Token` on authenticated POST/PUT/PATCH/DELETE requests.
 The server checks format and constant-time equality against the current session.
 The token remains stable for that session, so concurrent tabs do not invalidate
 each other's tokens. No readable CSRF cookie, server-wide signing secret or
@@ -173,9 +183,11 @@ read requests are not cancelled retroactively by revocation.
 
 ## Abuse protection, auditing and operations
 
-`express-rate-limit` 8.7 provides **10 login requests per IP per 15 minutes**,
-counting successful and failed requests, with temporary 429 `LOGIN_RATE_LIMITED`,
-standard rate-limit headers and `Retry-After`. IPv6 grouping uses the package's
+`express-rate-limit` 8.7 provides **10 failed login requests per IP per 15 minutes**,
+with temporary 429 `LOGIN_RATE_LIMITED`, standard rate-limit headers and
+`Retry-After`. Successful sign-ins are not counted, so staff who share a proxy or
+NAT address are not blocked at shift change; repeated failures from that shared
+address still affect everyone behind it. IPv6 grouping uses the package's
 default /56 subnet. There is no permanent account lockout or per-account failure
 counter. The current store is in-process: restart resets it and multiple API
 instances do not share it. **A shared backing store is required before scaling

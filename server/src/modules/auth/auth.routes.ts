@@ -13,6 +13,9 @@ export function authRoutes(db: PrismaClient, env: Pick<Environment, 'NODE_ENV' |
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next() })
   router.post('/login', rateLimit({
     windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    // Staff behind one proxy or NAT address share this limit; only failed
+    // attempts count, so ordinary sign-ins at shift change are not blocked.
+    skipSuccessfulRequests: true,
     // Proxy trust is explicitly validated at startup. Forwarding headers from
     // untrusted peers are deliberately ignored, not treated as configuration errors.
     validate: { xForwardedForHeader: false, forwardedHeader: false },

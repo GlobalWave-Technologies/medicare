@@ -88,8 +88,10 @@ describe('in-memory authentication lifecycle', () => {
   })
   it.each(['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const)('derives allowed navigation and landing from backend %s', (role) => {
     const uiRole = toUiRole(role), available = navItemsByRole[uiRole]
-    expect(allowedView(role, 'Overview')).toBe(role === 'RECORDS_OFFICER' ? 'Patients' : 'Overview')
-    expect(available.some((item) => item.label === allowedView(role, 'Reports'))).toBe(true)
-    if (role !== 'ADMIN') expect(allowedView(role, 'Reports')).not.toBe('Reports')
+    // Every role has a server dashboard and at least one report it may read.
+    expect(available[0]!.label).toBe('Overview'); expect(allowedView(role, 'Overview')).toBe('Overview')
+    expect(allowedView(role, 'Reports')).toBe('Reports')
+    expect(allowedView(role, 'Staff')).toBe(role === 'ADMIN' ? 'Staff' : 'Overview')
+    expect(allowedView(role, 'Medical records')).toBe(role === 'DOCTOR_IN_CHARGE' ? 'Medical records' : 'Overview')
   })
 })

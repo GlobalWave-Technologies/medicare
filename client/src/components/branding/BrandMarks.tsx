@@ -1,5 +1,3 @@
-
-
 export function CloudMark() {
   return (
     <svg viewBox="0 0 32 24" fill="none" aria-hidden="true">
@@ -9,21 +7,10 @@ export function CloudMark() {
   )
 }
 
-export function GoogleMark() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="#4285F4" d="M21.6 12.23c0-.7-.06-1.38-.18-2.03H12v3.84h5.38a4.6 4.6 0 0 1-1.99 3.02v2.51h3.22c1.89-1.74 2.99-4.3 2.99-7.34Z" />
-      <path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.61-2.43l-3.22-2.51c-.9.6-2.05.96-3.39.96-2.61 0-4.83-1.76-5.62-4.13H3.05v2.59A9.98 9.98 0 0 0 12 22Z" />
-      <path fill="#FBBC05" d="M6.38 13.89A6 6 0 0 1 6.06 12c0-.66.11-1.3.32-1.89V7.52H3.05A10 10 0 0 0 2 12c0 1.61.39 3.13 1.05 4.48l3.33-2.59Z" />
-      <path fill="#EA4335" d="M12 5.98c1.47 0 2.79.5 3.83 1.49l2.87-2.87C16.96 2.99 14.7 2 12 2a9.98 9.98 0 0 0-8.95 5.52l3.33 2.59C7.17 7.74 9.39 5.98 12 5.98Z" />
-    </svg>
-  )
-}
-
-export function AppleMark() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="currentColor" d="M17.05 12.54c-.02-2.37 1.93-3.51 2.02-3.56a4.34 4.34 0 0 0-3.42-1.85c-1.44-.15-2.82.86-3.55.86-.74 0-1.88-.84-3.1-.81a4.57 4.57 0 0 0-3.84 2.34c-1.65 2.86-.42 7.07 1.18 9.39.78 1.13 1.7 2.39 2.91 2.34 1.18-.05 1.62-.75 3.04-.75 1.42 0 1.82.75 3.05.73 1.26-.02 2.06-1.14 2.83-2.28a9.36 9.36 0 0 0 1.28-2.64 4.09 4.09 0 0 1-2.4-3.77ZM14.72 5.61a4.07 4.07 0 0 0 .93-2.92 4.15 4.15 0 0 0-2.68 1.39 3.87 3.87 0 0 0-.96 2.81 3.43 3.43 0 0 0 2.71-1.28Z" />
-    </svg>
-  )
+// One wordmark everywhere the product names itself: sign-in, navigation, the mobile header and recovery screens.
+export function Brand({ size = 'regular', inverse = false, tagline = 'Hospital Records' }: { size?: 'regular' | 'small'; inverse?: boolean; tagline?: string | null }) {
+  return <div className={['brand', size === 'small' && 'brand-small', inverse && 'brand-inverse'].filter(Boolean).join(' ')}>
+    <div className="brand-mark"><CloudMark /></div>
+    <div className="brand-copy"><strong>Medicare</strong>{tagline && <span>{tagline}</span>}</div>
+  </div>
 }

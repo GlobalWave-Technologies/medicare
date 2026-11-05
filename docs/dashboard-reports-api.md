@@ -221,6 +221,10 @@ audit protections remain intact.
 
 ## Frontend findings and deferred work
 
+Step 15 integrated these endpoints into Overview and Reports; see the
+[dashboard and reports frontend](frontend-dashboard-reports.md). The findings below
+describe the frontend as it was inspected in Step 8.
+
 The inspected Overview is shared by Admin and Doctor; Records has no Overview
 navigation. Records also lacks Reports navigation despite server operational-report
 permission, while Doctors have no dedicated clinical report screen. Navigation

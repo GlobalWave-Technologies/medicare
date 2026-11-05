@@ -20,7 +20,7 @@ export function createLogger(level: Environment['LOG_LEVEL'], destination?: Dest
         '*.address', '*.residentialAddress', '*.emergencyContact', '*.search',
         'sessionToken', 'tokenHash', 'csrfToken', 'csrfSecret', 'Cookie', 'Authorization', '["Set-Cookie"]', '["set-cookie"]',
         '*.sessionToken', '*.tokenHash', '*.csrfToken', '*.csrfSecret', '*.Cookie', '*.Authorization', '*["Set-Cookie"]', '*["set-cookie"]',
-        'req.headers["x-csrf-token"]', 'req.auth',
+        'req.headers["x-csrf-token"]', 'req.headers["idempotency-key"]', 'req.auth', 'idempotencyKey', '*.idempotencyKey',
         'password', 'token', 'accessToken', 'refreshToken', 'authorization',
         'cookie', 'DATABASE_URL', 'TEST_DATABASE_URL', 'BOOTSTRAP_ADMIN_PASSWORD', 'passwordHash', 'body', 'medicalHistory', 'medicalRecords',
         '*.password', '*.token', '*.accessToken', '*.refreshToken',

@@ -5,6 +5,7 @@ import { assertPermission, type Permission } from '../../shared/authorization/pe
 import { appendAuditEvent } from '../../shared/audit/audit.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { paginationWindow } from '../../shared/utils/pagination.js'
+import { idempotent, type IdempotencyScope } from '../../shared/idempotency/idempotency.js'
 import { encounterDetailSelect, encounterSummarySelect, type EncounterDetails } from './encounter.dto.js'
 import type { CreateEncounterInput, UpdateEncounterInput, EncounterQuery, AmendmentInput } from './encounter.validation.js'
 
@@ -50,12 +51,30 @@ function audit(tx: Prisma.TransactionClient, auth: AuthContext, context: AuditCo
     metadata: { source: 'API', ...(action === 'MEDICAL_RECORD_UPDATED' || action === 'MEDICAL_RECORD_AMENDED'
       ? { changedFields: ['clinicalRecord'] as const } : action === 'MEDICAL_RECORD_FINALIZED' ? { changedFields: ['status'] as const } : {}) } })
 }
-const complaintData = (values: NonNullable<UpdateEncounterInput['complaints']>) => values.map((v) => ({ description: v.description }))
-const diagnosisData = (values: NonNullable<UpdateEncounterInput['diagnoses']>) => values.map((v) => ({ description: v.description, code: v.code ?? null, notes: v.notes ?? null }))
+// Children written together would share one timestamp and fall back to random id
+// order; distinct millisecond offsets keep the clinician's entry order on read.
+function inEntryOrder<T extends object>(values: T[]) {
+  const base = Date.now()
+  return values.map((value, index) => ({ ...value, createdAt: new Date(base + index) }))
+}
+const complaintData = (values: NonNullable<UpdateEncounterInput['complaints']>) => inEntryOrder(values.map((v) => ({ description: v.description })))
+const diagnosisData = (values: NonNullable<UpdateEncounterInput['diagnoses']>) => inEntryOrder(values.map((v) => ({ description: v.description, code: v.code ?? null, notes: v.notes ?? null })))
 
-export async function createEncounter(db: PrismaClient, auth: AuthContext, context: AuditContext, input: CreateEncounterInput) {
+// The accepted values createEncounter writes; only a keyed digest of them is stored.
+export function encounterFingerprint(input: CreateEncounterInput) {
+  const instant = (value: string | null | undefined) => value ? new Date(value).toISOString() : null
+  return {
+    patientId: input.patientId, appointmentId: input.appointmentId ?? null, occurredAt: instant(input.occurredAt), followUpAt: instant(input.followUpAt),
+    roomLabel: input.roomLabel ?? null, historySummary: input.historySummary ?? null, clinicalNotes: input.clinicalNotes ?? null,
+    treatmentPlan: input.treatmentPlan ?? null, complaints: (input.complaints ?? []).map((value) => value.description),
+    diagnoses: (input.diagnoses ?? []).map((value) => ({ description: value.description, code: value.code ?? null, notes: value.notes ?? null })),
+  }
+}
+
+export async function createEncounter(db: PrismaClient, auth: AuthContext, context: AuditContext, input: CreateEncounterInput, idempotency?: IdempotencyScope) {
   try {
-    return await transaction(db, auth, 'CLINICAL_RECORD_CREATE', true, async (tx) => {
+    return await transaction(db, auth, 'CLINICAL_RECORD_CREATE', true, (tx) => idempotent(tx, idempotency,
+      (stored) => tx.encounter.findUniqueOrThrow({ where: { id: stored.encounterId! }, select: encounterDetailSelect }), async () => {
       await patientExists(tx, input.patientId, true)
       const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date()
       const followUpAt = input.followUpAt ? new Date(input.followUpAt) : null
@@ -80,8 +99,8 @@ export async function createEncounter(db: PrismaClient, auth: AuthContext, conte
         complaints: { create: complaintData(input.complaints ?? []) }, diagnoses: { create: diagnosisData(input.diagnoses ?? []) },
       }, select: encounterDetailSelect })
       await audit(tx, auth, context, value.id, 'MEDICAL_RECORD_CREATED')
-      return value
-    })
+      return { value, resource: { encounterId: value.id } }
+    }))
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       // The database unique key also protects against writers bypassing locks.
@@ -163,6 +182,11 @@ export function amendEncounter(db: PrismaClient, auth: AuthContext, context: Aud
     const value = await current(tx, id, true)
     author(value, auth)
     if (value.status !== 'REVIEWED') throw new AppError(409, 'ENCOUNTER_NOT_FINALIZED', 'Only finalized encounters can be amended')
+    // Amendments are permanent, so a resent request (including a browser resend
+    // after a dropped connection) must not append the same correction twice.
+    if (await tx.encounterAmendment.findFirst({ where: { encounterId: id, authorId: auth.principal.id, reason: input.reason, content: input.content }, select: { id: true } })) {
+      throw new AppError(409, 'DUPLICATE_AMENDMENT', 'This amendment is already recorded')
+    }
     await tx.encounterAmendment.create({ data: { encounterId: id, authorId: auth.principal.id, reason: input.reason, content: input.content } })
     await audit(tx, auth, context, id, 'MEDICAL_RECORD_AMENDED')
     return tx.encounter.findUniqueOrThrow({ where: { id }, select: encounterDetailSelect })

@@ -1,12 +1,11 @@
 import { useRef, useState, type FormEvent } from 'react'
 import {
-  ArrowUpRight,
   Eye,
   EyeOff,
   ShieldCheck,
   UserRound,
 } from 'lucide-react'
-import { CloudMark } from '../../components/branding/BrandMarks'
+import { Brand } from '../../components/branding/BrandMarks'
 import {
   ApiError,
   authErrorMessage,
@@ -50,23 +49,16 @@ export function Login({ onLogin }: LoginProps) {
         <div className="login-orbit orbit-one" />
         <div className="login-orbit orbit-two" />
 
-        <div className="login-brand">
-          <div className="brand-mark">
-            <CloudMark />
-          </div>
-
-          <strong>Hospital Records System</strong>
-          <span>Secure Access Portal</span>
-        </div>
+        <Brand inverse tagline="Hospital Records" />
 
         <div className="login-visual-copy">
-          <p className="eyebrow">A BETTER WAY TO CARE</p>
+          <p className="eyebrow">Staff workspace</p>
 
-          <h1>
+          <p className="login-headline">
             Clarity for every
             <br />
             <em>patient journey.</em>
-          </h1>
+          </p>
 
           <p>
             One secure workspace for your care team to manage records,
@@ -74,23 +66,22 @@ export function Login({ onLogin }: LoginProps) {
           </p>
 
           <div className="login-trust">
-            <ShieldCheck size={17} />
-            <span>Protected with enterprise-grade security</span>
+            <ShieldCheck size={17} aria-hidden="true" />
+            <span>Access for authorized hospital staff</span>
           </div>
         </div>
 
-        <span className="login-version">HRS / v1.0.0</span>
       </div>
 
       <div className="login-form-wrap">
         <div className="login-form">
           <div className="login-user-icon">
-            <UserRound size={30} />
+            <UserRound size={30} aria-hidden="true" />
           </div>
 
-          <p className="eyebrow">WELCOME BACK</p>
+          <p className="eyebrow">Welcome back</p>
 
-          <h2>Sign in to your workspace</h2>
+          <h1>Sign in to your workspace</h1>
 
           <p className="login-helper">
             Use your registered hospital staff email to continue.
@@ -135,9 +126,9 @@ export function Login({ onLogin }: LoginProps) {
                   aria-pressed={showPassword} disabled={submitting}
                 >
                   {showPassword ? (
-                    <EyeOff size={17} />
+                    <EyeOff size={17} aria-hidden="true" />
                   ) : (
-                    <Eye size={17} />
+                    <Eye size={17} aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -147,12 +138,6 @@ export function Login({ onLogin }: LoginProps) {
               <div
                 role="alert"
                 id="login-error" className="auth-error"
-                style={{
-                  marginTop: 12,
-                  marginBottom: 8,
-                  color: '#b42318',
-                  fontSize: 14,
-                }}
               >
                 {authErrorMessage(error)}
                 {error instanceof ApiError && error.requestId && <p>Support reference: {error.requestId}</p>}
@@ -164,9 +149,7 @@ export function Login({ onLogin }: LoginProps) {
               type="submit"
               disabled={submitting}
             >
-              {submitting ? 'Signing in...' : 'Sign in securely'}
-
-              {!submitting && <ArrowUpRight size={17} />}
+              {submitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 
@@ -178,9 +161,7 @@ export function Login({ onLogin }: LoginProps) {
         </div>
 
         <div className="login-copyright">
-          © 2026 Hospital Records System
-          <span> · </span>
-          Privacy & security
+          © 2026 Medicare Hospital Records
         </div>
       </div>
     </div>

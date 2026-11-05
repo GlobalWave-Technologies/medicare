@@ -5,14 +5,18 @@ import { requirePermission } from '../../middleware/authorization.js'
 import { authContext, auditContext } from '../auth/auth.context.js'
 import { toEncounterDetail, toEncounterSummary } from './encounter.dto.js'
 import { createEncounterSchema, updateEncounterSchema, encounterIdSchema, encounterQuerySchema, finalizeEncounterSchema, amendEncounterSchema } from './encounter.validation.js'
-import { createEncounter, listEncounters, getEncounterById, updateEncounter, finalizeEncounter, amendEncounter } from './encounter.service.js'
+import { createEncounter, listEncounters, getEncounterById, updateEncounter, finalizeEncounter, amendEncounter, encounterFingerprint } from './encounter.service.js'
+import { idempotencyScope, markReplay } from '../../shared/idempotency/idempotency.js'
 
 export function encounterRoutes(db: PrismaClient, origin: string) {
   const router = Router()
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next() })
   router.use(requireAuth(db), requireCsrf(origin))
   router.post('/', requirePermission('CLINICAL_RECORD_CREATE'), async (req, res) => {
-    const value = await createEncounter(db, authContext(req), auditContext(req), createEncounterSchema.parse(req.body))
+    const auth = authContext(req), input = createEncounterSchema.parse(req.body)
+    const scope = idempotencyScope(req, auth.principal.id, 'ENCOUNTER_CREATE', encounterFingerprint(input))
+    const { value, replayed } = await createEncounter(db, auth, auditContext(req), input, scope)
+    markReplay(req, res, scope, replayed)
     res.status(201).json({ success: true, data: { encounter: toEncounterDetail(value) } })
   })
   router.get('/', requirePermission('CLINICAL_RECORD_READ'), async (req, res) => {

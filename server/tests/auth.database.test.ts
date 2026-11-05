@@ -539,6 +539,13 @@ describe('atomicity, abuse controls and private data', () => {
     expect(response.headers.ratelimit).toBeDefined()
   })
 
+  it('does not count successful sign-ins from a shared address toward the limit', async () => {
+    const users = await Promise.all(Array.from({ length: 12 }, () => staff()))
+    for (const user of users) expect((await login(user.email)).status).toBe(200)
+    for (let i = 0; i < 10; i++) expect((await login('unknown@example.test', 'wrong')).status).toBe(401)
+    expect((await login('unknown@example.test', 'wrong')).status).toBe(429)
+  })
+
   it('does not trust spoofed forwarding headers to bypass the rate limit', async () => {
     for (let i = 0; i < 10; i++) await login('unknown@example.test', 'wrong')
     const response = await login('unknown@example.test', 'wrong').set('X-Forwarded-For', '192.0.2.200')

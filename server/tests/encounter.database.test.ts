@@ -191,6 +191,26 @@ describe('draft editing and finalization', () => {
     expect(cleared.status).toBe(200)
     expect(cleared.body.data.encounter).toMatchObject({ complaints: [], diagnoses: [], clinicalNotes: null })
   })
+  it('keeps complaints and diagnoses in entered order through create, replacement and finalization', async () => {
+    const body = await input()
+    const complaints = ['Zeta listed first', 'Alpha listed second', 'Middle listed third', 'Omega listed fourth', 'Beta listed fifth'].map((description) => ({ description }))
+    const diagnoses = ['Principal finding', 'Secondary finding', 'Additional finding', 'Incidental finding'].map((description, index) => ({ description, code: `ORD-${index}` }))
+    const names = (items: Array<{ description: string }>) => items.map((item) => item.description)
+    const created = await send('post', base, { ...body, complaints, diagnoses })
+    expect(created.status).toBe(201)
+    const id = created.body.data.encounter.id
+    expect(names(created.body.data.encounter.complaints)).toEqual(names(complaints))
+    expect(names(created.body.data.encounter.diagnoses)).toEqual(names(diagnoses))
+    const reordered = [...diagnoses].reverse()
+    const updated = await send('patch', `${base}/${id}`, { diagnoses: reordered })
+    expect(names(updated.body.data.encounter.diagnoses)).toEqual(names(reordered))
+    expect((await send('post', `${base}/${id}/finalize`, {})).status).toBe(200)
+    const detail = (await read(`${base}/${id}`)).body.data.encounter
+    expect(names(detail.complaints)).toEqual(names(complaints))
+    expect(names(detail.diagnoses)).toEqual(names(reordered))
+    const summary = (await read(`${base}?patientId=${body.patientId}`)).body.data.items[0]
+    expect(names(summary.diagnoses)).toEqual(names(reordered))
+  })
   it.each(['patientId', 'clinicianId', 'createdById', 'receivedById', 'appointmentId', 'reference', 'status', 'reviewedAt', 'createdAt', 'updatedAt', 'id', 'amendments'])(
     'rejects protected draft field %s', async (field) => {
       const value = await seed()
@@ -262,6 +282,19 @@ describe('amendments and database history integrity', () => {
     const value = await reviewed()
     await db.patient.update({ where: { id: value.patientId }, data: { archivedAt: new Date() } })
     expect((await send('post', `${base}/${value.id}/amend`, { reason: 'Correction', content: 'Historical correction' })).status).toBe(201)
+  })
+  it('rejects a resent identical amendment, including concurrent resends, without a second permanent entry', async () => {
+    const value = await reviewed(), body = { reason: 'Correction reason', content: 'Resent correction' }
+    expect((await send('post', `${base}/${value.id}/amend`, body)).status).toBe(201)
+    const repeat = await send('post', `${base}/${value.id}/amend`, body)
+    expect(repeat.status).toBe(409)
+    expect(repeat.body.error.code).toBe('DUPLICATE_AMENDMENT')
+    expect(await db.encounterAmendment.count({ where: { encounterId: value.id } })).toBe(1)
+    const concurrent = await Promise.all([1, 2].map(() => send('post', `${base}/${value.id}/amend`, { reason: 'Second reason', content: 'Concurrent correction' })))
+    expect(concurrent.map((response) => response.status).sort()).toEqual([201, 409])
+    expect((await send('post', `${base}/${value.id}/amend`, { ...body, content: 'Different correction' })).status).toBe(201)
+    expect(await db.encounterAmendment.count({ where: { encounterId: value.id } })).toBe(3)
+    expect(await db.auditEvent.count({ where: { entityId: value.id, action: 'MEDICAL_RECORD_AMENDED' } })).toBe(3)
   })
   it('rejects draft amendments and another doctor amending finalized content', async () => {
     const draft = await seed(), final = await reviewed(), body = { reason: 'Correction', content: 'Content' }

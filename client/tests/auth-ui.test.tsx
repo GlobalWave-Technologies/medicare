@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+/// <reference types="node" />
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -6,7 +7,8 @@ import { Login } from '../src/features/auth/Login'
 import { AuthGate } from '../src/features/auth/AuthGate'
 import { createAuthStore } from '../src/features/auth/auth-store'
 import { ApiError } from '../src/api/client'
-import { defaultBroadcasts } from '../src/mocks/data'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { StaffUser } from '../src/api/auth'
 
 let host: HTMLDivElement, root: Root
@@ -97,10 +99,10 @@ it('never reads cookies or persists credentials, identity or CSRF in browser sto
   expect(host.textContent).toContain('Protected content')
   expect(storage).not.toHaveBeenCalled(); expect(cookie).not.toHaveBeenCalled()
 })
-it('unmounts protected content when logout completes and preserves non-auth mocks', async () => {
+it('unmounts protected content when logout completes, with no mock data module left behind', async () => {
   const { store } = setup()
   await act(async () => root.render(<AuthGate store={store}>{() => <p>Protected content</p>}</AuthGate>))
   await act(async () => store.logout())
   expect(host.querySelector('form')).not.toBeNull(); expect(host.textContent).not.toContain('Protected content')
-  expect(defaultBroadcasts.length).toBeGreaterThan(0)
+  expect(existsSync(resolve('src/mocks'))).toBe(false)
 })

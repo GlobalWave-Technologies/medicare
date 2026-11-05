@@ -7,7 +7,18 @@ their existing behavior and mocks. No new domain integration is introduced here.
 
 ## Findings and architecture
 
-At inspection, concurrent work had already replaced the original role-selector
+The 2026-10-28 review found this Step 9 implementation already present, with
+58 auth tests and a clean working tree. It preserved that implementation and the
+existing patient/appointment wiring. The changes in this review add cancellation
+protection before API responses affect auth state, safe validation feedback, two
+frontend regression tests, and CORS exposure of Retry-After with backend regression
+coverage. No authentication/session/authorization semantics changed on the server.
+See [current verification and file inventory](step-9-completion.md).
+
+The earlier integration findings recorded below describe the previous baseline,
+not missing functionality at the start of the 2026-10-28 review:
+
+At the earlier inspection, concurrent work had already replaced the original role-selector
 login with email/password requests, added credentialed fetch and `/auth/me`, and
 connected some patient/appointment operations. It had no shared auth lifecycle,
 treated session-check failures as ordinary signed-out state, fetched CSRF before
@@ -44,8 +55,13 @@ are supported. Components do not issue raw auth fetches.
 
 The client parses the backend `{ success, data/error }` envelope. ApiError preserves
 HTTP status, code, message and requestId, with numeric Retry-After when available.
+The backend exposes Retry-After alongside X-Request-Id for credentialed CORS;
+this makes the delay readable when VITE_API_URL specifies a separate same-site origin.
 Malformed/non-JSON responses fail safely. Login/restoration/logout UI uses friendly
 messages and a support reference, without displaying arbitrary stacks or proxy text.
+Validation errors ask the user to check their submitted details. After response
+body parsing, cancellation is checked before any global 401 side effect, so an
+aborted restoration cannot invalidate a newer auth check.
 
 The browser owns the HttpOnly `medicare_session` cookie. Application JavaScript
 never reads it, copies it, creates it or persists a session token. No password,
@@ -167,11 +183,13 @@ CSRF reuse/reset/rejection, mutation non-replay, stale response races, 403 handl
 storage/cookie non-access and preservation of existing mocks. Frontend tests are
 included in typechecking and linting; backend tests remain unchanged.
 
-A connected browser is unavailable in this session (inventory empty; in-app
-browser unavailable). DOM tests are not a substitute for real layout or browser
-cookie/CORS verification. The disposable live HTTP check covers bootstrap/login,
-safe identity, cookie flags, restoration, CSRF and logout; it does not claim visual
-desktop/mobile checks or a real browser refresh. Before rollout, manually verify
+For the 2026-10-28 review, the browser access host was unavailable. Native Edge
+windows were listed, but no disposable database was configured for a live auth
+flow: TEST_DATABASE_URL failed validation even with NODE_ENV=test. No real login,
+bootstrap, refresh or logout verification was performed in this review. Prior
+verification notes are not counted as current results. DOM tests are not a
+substitute for real layout or browser cookie/CORS verification. Before rollout,
+configure the isolated database suite and manually verify
 the original 14-step login/refresh/logout flow at desktop and mobile widths,
 keyboard focus, and production reverse-proxy cookie behavior.
 

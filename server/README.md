@@ -55,8 +55,13 @@ npm run dev:server
 
 The API defaults to port 4000. Run `npm run dev:client` in another terminal for
 the frontend. `npm run dev` retains the existing frontend-only behavior.
-Dashboard and report screens still use mock data. Other frontend integration is
-being developed separately; Step 8 does not wire those screens.
+Frontend login now uses real sessions; see [frontend authentication](../docs/frontend-auth-integration.md).
+Use `CLIENT_ORIGIN=http://localhost:5173` with the existing Vite proxy. CORS exposes
+`Retry-After` so an explicit same-site API URL can show login rate-limit delays.
+Authentication, patients, appointments and clinical records use the server APIs.
+Staff management, notifications, dashboard analytics and reports/exports remain
+explicitly unavailable in the frontend. See the [release readiness report](../docs/release-readiness-report.md)
+for deployment prerequisites and the verified release scope.
 
 ## Configuration
 

@@ -5,6 +5,7 @@ import { assertPermission, type Permission } from '../../shared/authorization/pe
 import { appendAuditEvent } from '../../shared/audit/audit.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { paginationWindow } from '../../shared/utils/pagination.js'
+import { idempotent, type IdempotencyScope } from '../../shared/idempotency/idempotency.js'
 import { deliverySelect, notificationSelect } from './notification.dto.js'
 import type { BroadcastInput, NotificationQuery } from './notification.validation.js'
 
@@ -66,8 +67,12 @@ export function markAllNotificationsRead(db: PrismaClient, auth: AuthContext) {
     return result.count
   })
 }
-export function broadcastNotification(db: PrismaClient, auth: AuthContext, context: AuditContext, input: BroadcastInput) {
-  return write(db, auth, 'NOTIFICATION_BROADCAST', false, async (tx) => {
+export function broadcastNotification(db: PrismaClient, auth: AuthContext, context: AuditContext, input: BroadcastInput, idempotency?: IdempotencyScope) {
+  return write(db, auth, 'NOTIFICATION_BROADCAST', false, (tx) => idempotent(tx, idempotency, async (stored) => ({
+    // Content and deliveries are immutable, so a replay reports exactly what was sent.
+    notification: await tx.notification.findUniqueOrThrow({ where: { id: stored.notificationId! }, select: notificationSelect }),
+    recipientCount: await tx.notificationRecipient.count({ where: { notificationId: stored.notificationId! } }),
+  }), async () => {
     // Bound synchronous fan-out without changing the chosen audience silently.
     const recipients = await tx.staffUser.findMany({ where: { status: 'ACTIVE',
       role: input.audience.type === 'ROLE' ? input.audience.role : undefined }, select: { id: true }, orderBy: { id: 'asc' }, take: 10001 })
@@ -80,8 +85,8 @@ export function broadcastNotification(db: PrismaClient, auth: AuthContext, conte
     await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'NOTIFICATION_BROADCAST_CREATED',
       entityType: 'NOTIFICATION', entityId: value.id,
       metadata: { source: 'API', audience: input.audience.type, recipientCount: recipients.length } })
-    return { notification: value, recipientCount: recipients.length }
-  })
+    return { value: { notification: value, recipientCount: recipients.length }, resource: { notificationId: value.id } }
+  }))
 }
 
 const appointmentMessages = {
