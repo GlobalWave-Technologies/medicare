@@ -1,6 +1,32 @@
 # Release readiness report
 
-## Q. Final recommendation (summary)
+## Current decision (Step 18, 5 November 2026)
+
+**CONDITIONAL GO.** Final release acceptance ran on a production-like staging stack, with
+458 of 458 checks passing in their final runs:
+
+- **Infrastructure:** HTTPS on a staging hostname through nginx, the production build, and PostgreSQL
+  18 with separate owner, runtime and backup identities over TLS.
+- **Role walkthroughs:** Admin, Records Officer and Doctor, including the full clinical workflow.
+- **API and data controls:** idempotency, the password lifecycle and both prune jobs.
+- **Operations:** backup and restore into a separate database, a readiness outage, and a real
+  `SIGTERM`.
+- **Browsers:** Chrome, Edge and the Firefox and WebKit engines, at five widths in both themes.
+- **Logs:** the scan found no sensitive values.
+
+No P0 or P1 software issue was found. Production deployment may begin only after these
+operational and customer conditions are closed:
+
+- the backup and monitoring owner decisions;
+- scheduled jobs on the real platform;
+- a rehearsal on the hospital's real hosting;
+- the manual autofill, high-contrast, Safari and screen-reader checks;
+- the hospital's acceptance of UTC reporting periods.
+
+See [final release acceptance](final-release-acceptance.md). The sections below are the earlier
+4 November acceptance and its addendum, kept as the historical record.
+
+## Q. Final recommendation (summary, 4 November candidate)
 
 **CONDITIONAL GO.** No P0 issue was found. Four P1 defects found during acceptance were fixed and re-verified in the browser and by new regression tests. The explicitly scoped product may proceed to controlled customer acceptance with synthetic data. Production use and customer handoff require the prerequisites listed in section Q to be closed first.
 
@@ -204,7 +230,7 @@ None found.
 | P3-5 | `pg` prints a deprecation warning at server start (future `pg@9` incompatibility); keep the `^8` range until the Prisma adapter is updated |
 | P3-6 | Error log entries repeat the `requestId` key |
 | P3-7 | Two timing-sensitive test-harness flakes (section B) |
-| P3-8 | Developer-tooling metadata (`server/skills-lock.json`) is tracked; decide whether it belongs in delivered source |
+| P3-8 | Developer-tooling metadata (`server/skills-lock.json`) is tracked; decide whether it belongs in delivered source. **Resolved in Step 18:** removed from the working tree and ignored |
 
 ## Q. Final recommendation
 
@@ -226,13 +252,51 @@ Current behaviour: patients are archived, never deleted; appointments keep their
 
 ## Addendum: changes after this acceptance run
 
-The decision above was made on the 4 November candidate. Five changes followed. Repeat the affected parts of customer acceptance before relying on this report for them.
+The decision above was made on the 4 November candidate. Eight changes followed. Repeat the affected parts of customer acceptance before relying on this report for them.
 
 - **Step 13, notifications frontend:** the Notifications screen is a real inbox with an unread badge, read state, appointment links and administrator broadcasts. It passed 138/138 live checks; see [notification frontend integration](frontend-notification-integration.md).
 - **Step 13.1, mutation idempotency:** patient registration, clinical encounter creation and broadcasts accept an `Idempotency-Key`, and the frontend sends one for every submission. A resent request within 24 hours returns the original result instead of writing again. Migration `20261104120000_mutation_idempotency` adds one table; nine migrations now deploy. In Chrome, one dropped response followed by an automatic browser resend, and two dropped responses followed by a deliberate retry, each stored exactly one patient, broadcast or walk-in draft (43/43 live checks). See [mutation idempotency](idempotency.md).
 - **Step 14, staff administration frontend:** Staff & Access is an Admin-only workspace over the existing staff API, with no backend change. It covers the directory with server totals, role and status filters, adding accounts, role changes, suspend, reactivate, permanent disable and session sign-out. Every change is confirmed and none is shown optimistically. It passed 114/114 live checks, including target sign-out after role, status and session changes, last-admin refusals and self-action sign-out; see [staff administration frontend](frontend-staff-administration.md). Known limitation 9 now applies only to dashboard analytics and reports/exports.
 - **Step 15, dashboard and reports frontend:** every role lands on a server-chosen Overview that separates current status from period activity, and Reports offers the reports each role may read. Admins and Records Officers get patient and appointment activity; doctors get their own clinical activity. Periods are UTC calendar dates with day, Monday-week or month grouping, and charts include text summaries and data tables. There is no backend change and no export. The unused mock data module was removed. It passed 96/96 live checks, where every displayed figure matched values computed from the database, including UTC-midnight boundaries and identical labels in far-west and far-east browser time zones; see [dashboard and reports frontend](frontend-dashboard-reports.md). Known limitation 9 now applies only to report exports.
 - **Step 16, final UI/UX consistency pass:** the frontend now uses one shared design system and one Medicare wordmark. Dialogs, footers, statuses, forms, loading and empty states, feedback and pagination are consistent across modules. Field borders and text meet contrast minimums, and appointment and clinical detail views are restructured for scanning. Unconfirmed-save messages tell staff when resubmitting the unchanged form is safe (registration, new drafts, broadcasts and amendments). Choosing a workspace in the navigation always opens its landing view. Unused template assets and components were removed. There is no backend, contract or business-rule change. The live walkthrough covered three roles, every major screen and five widths; see [final UI/UX review](final-ui-ux-review.md).
-- **Automated totals after these changes:** 2,050 tests across 60 files (784 client, 505 server unit, 761 database). Install, Prisma generate/validate, typecheck, lint, build and `git diff --check` pass, and every database suite deploys all nine migrations twice. Install, Prisma generate/validate, typecheck, lint, build and `git diff --check` pass, and every database suite deploys all nine migrations twice.
+- **Step 16.1, orange-and-white branding and dark mode:** the client's original orange palette was recovered from the first frontend (commit `1e93826`) and restored, with darker steps from the same family wherever text or marks need contrast. A Light, Dark and System theme choice sits in the navigation footer, the mobile menu and on sign-in. It is stored only as `medicare-theme` in the browser and applied before the first paint by `client/public/theme-init.js`, which must be served with revalidation. Status colours keep their meanings in both themes; destructive actions moved to rose-crimson so they cannot be mistaken for orange primary actions. There is no backend, contract or business-rule change. The Chrome walkthrough passed 1,117/1,117 checks across three roles, both themes and five widths; see [branding and dark mode](branding-dark-mode.md).
+- **Step 17, production and security hardening:** see [production security hardening](production-security-hardening.md) and the rewritten [release operations runbook](release-operations.md).
+  - **Accounts and credentials:**
+    - staff creation is idempotency-keyed;
+    - staff can change their own password, which signs them out everywhere;
+    - administrators can reset passwords and set a pending account's first password.
+  - **Maintenance and database roles:**
+    - expired sessions are pruned by a scheduled command;
+    - `server/ops/runtime-grants.sql` grants the runtime role exactly what it uses and refuses an unsafe role;
+    - every attempt by that role to bypass clinical, amendment, audit, notification or retry-record protection was refused.
+  - **Production configuration:**
+    - production cookies use the `__Host-` prefix;
+    - production refuses to start without `TRUSTED_PROXY_CIDRS`;
+    - API responses deny all resources and framing;
+    - the frontend Content-Security-Policy and cache headers are specified and were verified in the browser.
+  - **Migrations:** two were added (eleven now deploy), affecting only enum values and the small `IdempotencyRecord` table.
+  - **Live check:** the production-build walkthrough passed 93 of 95 checks across Chrome, Edge, and the Firefox and WebKit engines. It covered cookies, headers, CORS, proxy trust, rate limiting, a readiness outage and recovery, maintenance commands, password flows, a log scan and a backup/restore drill whose `restore-check.sql` comparison matched exactly.
+    - The two failures are one observation: the Windows WebKit build reports Content-Security-Policy refusals. **Corrected in Step 18:** these refusals come from styles the application sets from script, not from native drop-down rendering. Those styles are chart positions, report bar widths and the dialog scroll lock. CSP permits them, and a side-by-side probe showed the WebKit engine applies them exactly as Chrome does. Safari must be checked on Apple devices.
+- **New operational prerequisites:**
+  - apply `server/ops/runtime-grants.sql` after every migration and restore;
+  - schedule `sessions:prune` and `idempotency:prune` daily;
+  - set `TRUSTED_PROXY_CIDRS` (or `none`);
+  - serve `client/dist` with the runbook's headers;
+  - complete the runbook's backup decisions table.
+- **Automated totals after these changes:** 2,095 tests across 64 files (807 client, 509 server unit, 779 database). Install, Prisma generate/validate, typecheck, lint, build and `git diff --check` pass, and every database suite deploys all eleven migrations twice.
 - **New operational prerequisite:** grant the runtime role `DELETE` (not `UPDATE`) on `IdempotencyRecord` and schedule `npm run idempotency:prune --workspace @medicare/server` at least daily.
+- **Step 18, final release acceptance on staging:** no product code changed. See [final release acceptance](final-release-acceptance.md).
+  - **Staging stack:**
+    - nginx with TLS on `staging.medicare.test`;
+    - the production API build as an unprivileged, read-only container with no internet access;
+    - PostgreSQL 18 requiring TLS and SCRAM, with separate owner, runtime and backup identities.
+  - **Deploy order:** run twice, the first deployment then a redeployment with a backup first. Eleven migrations applied as the non-superuser owner, with nothing pending on the second run.
+  - **Results:** 458/458 checks in their final runs. They covered cookies, CORS, headers, cache, a stale-page redeploy, themes, three role walkthroughs, idempotency, passwords, pruning, rate limiting with real client addresses, 25 refused runtime-role attacks, backup and restore with disaster-recovery session revocation, outage recovery, a real `SIGTERM`, four browser engines, five widths in both themes, and a log scan.
+  - **Cleanup:** 24 tracked `.release-*` QA files and `server/skills-lock.json` were removed from the working tree and added to `.gitignore`.
+  - **Documentation corrections:**
+    - the production first-administrator command is `node server/dist/cli/bootstrapAdmin.js`;
+    - database `CONNECT` privileges and the backup role are now specified;
+    - the WebKit/CSP statement above is corrected.
+  - **Still unverified:** Safari, stock Firefox, screen readers, Windows high contrast and saved-password autofill.
+  - **Automated totals:** unchanged at 2,095 tests across 64 files.
 

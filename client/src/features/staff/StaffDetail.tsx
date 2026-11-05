@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, LogOut, RefreshCw, ShieldCheck, UserCog } from 'lucide-react'
+import { ArrowLeft, KeyRound, LogOut, RefreshCw, ShieldCheck, UserCog } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import type { StaffMember } from '../../api/staff'
-import { RoleDialog, SessionsDialog, StatusDialog } from './StaffActions'
+import { PasswordDialog, RoleDialog, SessionsDialog, StatusDialog } from './StaffActions'
 import { StaffFeedback } from './StaffFeedback'
 import { StaffStatusBadge } from './StaffStatusBadge'
 import { useStaffMember } from './useStaff'
@@ -10,7 +10,7 @@ import {
   canChangeRole, canRevokeSessions, initials, roleAccess, roleLabel, staffName, statusActions, statusLabels, statusMeaning, statusNotice, type StatusAction,
 } from './staff-utils'
 
-type Command = { kind: 'role' } | { kind: 'status'; action: StatusAction } | { kind: 'sessions' }
+type Command = { kind: 'role' } | { kind: 'status'; action: StatusAction } | { kind: 'sessions' } | { kind: 'password' }
 const actionClass: Record<StatusAction['tone'], string> = { positive: 'button-primary', caution: 'staff-button-caution', danger: 'button-danger-quiet' }
 
 export function StaffDetail({ id, initial, selfId, notice: initialNotice = '', onBack, onChanged, onSessionEnded }: {
@@ -82,7 +82,17 @@ export function StaffDetail({ id, initial, selfId, notice: initialNotice = '', o
             <div className="staff-section-actions"><button type="button" className="button staff-button-caution" onClick={() => setCommand({ kind: 'sessions' })}>Sign out all sessions</button></div></>
           : <p>A {fresh.status === 'PENDING' ? 'pending' : fresh.status === 'SUSPENDED' ? 'suspended' : 'disabled'} account can’t be signed in, so it has no active sessions to sign out.</p>}
       </section>
+      <section className="staff-section" aria-labelledby="staff-password-title">
+        <h3 id="staff-password-title"><KeyRound size={18} aria-hidden="true" />Password</h3>
+        {self ? <p>To change your own password, use Change password in the menu. It asks for your current password.</p>
+          : fresh.status === 'DISABLED' ? <p>A disabled account can’t be given a new password.</p>
+            : <><p>{fresh.status === 'PENDING' ? 'Set the password this person will use once the account is activated.' : 'Replace a forgotten or exposed password. This signs the person out on all devices.'}</p>
+              <div className="staff-section-actions"><button type="button" className="button staff-button-caution" onClick={() => setCommand({ kind: 'password' })}>{fresh.status === 'PENDING' ? 'Set password' : 'Reset password'}</button></div></>}
+      </section>
     </div>}
+    {fresh && command?.kind === 'password' && <PasswordDialog member={fresh} onClose={() => setCommand(undefined)}
+      onDone={(user) => changed(user, user.status === 'PENDING' ? `Password set for ${staffName(user)}. Activate the account when they’re ready to sign in.`
+        : `Password reset for ${staffName(user)}. They’ve been signed out on all devices and must use the new password.`, false)} />}
     {fresh && command?.kind === 'role' && <RoleDialog member={fresh} self={self} onClose={() => setCommand(undefined)}
       onChanged={(user) => changed(user, `Role updated to ${roleLabel(user.role)}. Existing sessions have been signed out.`)} />}
     {fresh && command?.kind === 'status' && <StatusDialog member={fresh} action={command.action} self={self} onClose={() => setCommand(undefined)}

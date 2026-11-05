@@ -3,7 +3,8 @@ import { config } from 'dotenv'
 import { z } from 'zod'
 import { isIP } from 'node:net'
 
-const trustedProxies = z.string().default('').transform((value) => value ? value.split(',').map((part) => part.trim()) : [])
+// `none` records a deliberate decision that the API is reached directly, without a reverse proxy.
+const trustedProxies = z.string().transform((value) => value && value.trim() !== 'none' ? value.split(',').map((part) => part.trim()) : [])
   .refine((values) => values.every((value) => {
     const [address, prefix, extra] = value.split('/')
     const version = isIP(address ?? '')
@@ -54,7 +55,9 @@ export function parseEnvironment(input: Record<string, string | undefined>): Env
     DATABASE_URL: input.DATABASE_URL,
     CLIENT_ORIGIN: input.CLIENT_ORIGIN ?? (production ? undefined : 'http://localhost:5173'),
     LOG_LEVEL: input.LOG_LEVEL ?? (production ? undefined : 'info'),
-    TRUSTED_PROXY_CIDRS: input.TRUSTED_PROXY_CIDRS,
+    // Production must state its proxy trust: a forgotten value behind a proxy would make every
+    // client share one sign-in failure budget, which any outsider could exhaust.
+    TRUSTED_PROXY_CIDRS: input.TRUSTED_PROXY_CIDRS || (production ? undefined : ''),
   })
   if (!parsed.success) {
     throw new ConfigurationError(parsed.error.issues.map((issue) => String(issue.path[0])))

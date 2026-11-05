@@ -30,6 +30,14 @@ export const authApi = {
   },
   async me(signal?: AbortSignal) { return userResult(await request<unknown>('/auth/me', { signal })) },
   async csrf() { return { csrfToken: await csrfToken() } },
+  // Sends the current and new passwords only (never the confirmation). The server signs out every
+  // session, including this one, so the browser session is reset as soon as it succeeds.
+  async changePassword(currentPassword: string, newPassword: string) {
+    const result = await mutation<{ passwordChanged: boolean }>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) })
+    if (result?.passwordChanged !== true) throw new ApiError(502, 'Unexpected password change response.', 'INVALID_RESPONSE')
+    resetApiSession()
+    return result
+  },
   logout: () => endSession('/auth/logout'),
   logoutAll: () => endSession('/auth/logout-all'),
 }

@@ -78,6 +78,8 @@ enum AuditAction {
   LOGIN_FAILED
   LOGOUT
   SESSION_REVOKED
+  PASSWORD_CHANGED
+  PASSWORD_RESET
 }
 
 enum AuditEntityType {
@@ -110,12 +112,13 @@ model StaffUser {
   encountersCreated     Encounter[]             @relation("EncounterCreator")
   encountersReceived    Encounter[]             @relation("EncounterReceiver")
   encountersPerformed   Encounter[]             @relation("EncounterClinician")
-  encounterAmendments    EncounterAmendment[]
+  encounterAmendments   EncounterAmendment[]
   notificationsSent     Notification[]
   notifications         NotificationRecipient[]
   auditEvents           AuditEvent[]
   sessions              StaffSession[]
-  idempotencyRecords    IdempotencyRecord[]
+  idempotencyRecords    IdempotencyRecord[]     @relation("IdempotencyPrincipal")
+  createdByIdempotency  IdempotencyRecord?      @relation("IdempotencyStaffUser")
 
   @@index([role, status])
 }
@@ -135,18 +138,18 @@ model StaffSession {
 }
 
 model Patient {
-  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  patientNumber String        @unique @default(dbgenerated("('PT-'::text || upper((gen_random_uuid())::text))")) @db.VarChar(39)
-  firstName     String        @db.VarChar(100)
-  middleName    String?       @db.VarChar(100)
-  lastName      String        @db.VarChar(100)
-  dateOfBirth   DateTime?     @db.Date
-  phone         String?       @db.VarChar(32)
-  archivedAt    DateTime?     @db.Timestamptz(3)
-  createdById   String        @db.Uuid
-  createdBy     StaffUser     @relation("PatientCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime      @default(now()) @updatedAt @db.Timestamptz(3)
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patientNumber String             @unique @default(dbgenerated("('PT-'::text || upper((gen_random_uuid())::text))")) @db.VarChar(39)
+  firstName     String             @db.VarChar(100)
+  middleName    String?            @db.VarChar(100)
+  lastName      String             @db.VarChar(100)
+  dateOfBirth   DateTime?          @db.Date
+  phone         String?            @db.VarChar(32)
+  archivedAt    DateTime?          @db.Timestamptz(3)
+  createdById   String             @db.Uuid
+  createdBy     StaffUser          @relation("PatientCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt     DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime           @default(now()) @updatedAt @db.Timestamptz(3)
   appointments  Appointment[]
   encounters    Encounter[]
   idempotency   IdempotencyRecord?
@@ -279,9 +282,9 @@ model Notification {
   createdAt  DateTime                @default(now()) @db.Timestamptz(3)
   recipients NotificationRecipient[]
 
-  appointmentId String?    @db.Uuid
-  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  idempotency IdempotencyRecord?
+  appointmentId String?            @db.Uuid
+  appointment   Appointment?       @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  idempotency   IdempotencyRecord?
 
   @@index([senderId, createdAt])
   @@index([appointmentId])
@@ -324,6 +327,7 @@ enum IdempotentOperation {
   PATIENT_CREATE
   ENCOUNTER_CREATE
   NOTIFICATION_BROADCAST
+  STAFF_CREATE
 }
 
 // Retry protection for selected create requests. Holds hashes and the created
@@ -331,7 +335,7 @@ enum IdempotentOperation {
 model IdempotencyRecord {
   id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   principalId    String              @db.Uuid
-  principal      StaffUser           @relation(fields: [principalId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  principal      StaffUser           @relation("IdempotencyPrincipal", fields: [principalId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   operation      IdempotentOperation
   keyHash        String              @db.Char(64)
   requestHash    String              @db.Char(64)
@@ -341,6 +345,8 @@ model IdempotencyRecord {
   encounter      Encounter?          @relation(fields: [encounterId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   notificationId String?             @unique @db.Uuid
   notification   Notification?       @relation(fields: [notificationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  staffUserId    String?             @unique @db.Uuid
+  staffUser      StaffUser?          @relation("IdempotencyStaffUser", fields: [staffUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt      DateTime            @default(now()) @db.Timestamptz(3)
   expiresAt      DateTime            @db.Timestamptz(3)
 

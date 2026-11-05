@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Eye, EyeOff, KeyRound } from 'lucide-react'
 import type { BackendRole } from '../../api/auth'
 import { ApiError } from '../../api/client'
-import { staffApi, staffRoles, type StaffMember } from '../../api/staff'
+import { creation, staffApi, staffRoles, type CreateStaffInput, type StaffMember } from '../../api/staff'
+import { submissionKeys } from '../../api/idempotency'
 import { Dialog } from '../../components/ui/Dialog'
 import { useUnsavedChanges } from '../../components/ui/useUnsavedChanges'
 import { StaffFeedback } from './StaffFeedback'
@@ -19,7 +20,7 @@ export function AddStaffDialog({ onClose, onCreated }: { onClose: () => void; on
   const [form, setForm] = useState<StaffForm>(blank), [problems, setProblems] = useState<Partial<Record<StaffField, string>>>({})
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [showPassword, setShowPassword] = useState(false)
   const [unconfirmed, setUnconfirmed] = useState(false), [duplicate, setDuplicate] = useState(false), [refused, setRefused] = useState<{ field: StaffField }>()
-  const pending = useRef(false), formRef = useRef<HTMLFormElement>(null), id = useId()
+  const pending = useRef(false), formRef = useRef<HTMLFormElement>(null), id = useId(), [keys] = useState(submissionKeys)
   const dirty = Object.values(form).some((value) => value.trim() !== '')
   useUnsavedChanges(dirty)
   const close = () => { if (!pending.current && (!dirty || window.confirm('Discard this new staff account? The details you entered will be lost.'))) onClose() }
@@ -38,10 +39,12 @@ export function AddStaffDialog({ onClose, onCreated }: { onClose: () => void; on
     const first = order.find((field) => next[field])
     if (first) { focus(first); return }
     pending.current = true; setBusy(true); setError(undefined); setDuplicate(false); setRefused(undefined)
+    const input: CreateStaffInput = { ...form, role: form.role as BackendRole }
     try {
-      const { user } = await staffApi.create({ ...form, role: form.role as BackendRole })
-      onCreated(user); onClose()
+      const { user } = await staffApi.create(input, keys.key(creation(input)))
+      keys.settle(); onCreated(user); onClose()
     } catch (caught) {
+      keys.settle(caught)
       const field = caught instanceof ApiError && caught.code ? fieldErrors[caught.code] : undefined
       setDuplicate(caught instanceof ApiError && caught.status === 409)
       if (uncertain(caught)) setUnconfirmed(true)

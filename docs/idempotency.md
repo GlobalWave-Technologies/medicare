@@ -49,7 +49,24 @@ Other creates are not keyed:
   constraints, so no duplicate row is stored. The user sees a conflict message that
   advises refreshing the schedule.
 - **Amendments:** an identical amendment is rejected.
-- **Staff creation:** email and staff number are unique.
+
+## Staff creation (Step 17)
+
+`POST /api/v1/staff` is keyed as operation `STAFF_CREATE`:
+
+- **Replay:** the same administrator, key and accepted input returns the original account (`201`,
+  `Idempotency-Replayed: true`) with no second account or audit event.
+- **Changed input:** a changed field or a changed password under the same key is refused with
+  `IDEMPOTENCY_KEY_REUSED`.
+- **Other administrators:** another administrator's same key is never replayed; it reaches the
+  ordinary duplicate checks.
+- **New keys:** keep the existing `EMAIL_ALREADY_EXISTS` and `STAFF_NUMBER_ALREADY_EXISTS`
+  refusals.
+- **The password is never stored:** the fingerprint contains the identity fields and a SHA-256
+  digest of the password, and only an HMAC of that, keyed by the raw key, is stored. The record
+  links to the account through a new `staffUserId` column; migrations
+  `20261106090000_credential_lifecycle_enums` and `20261106090100_staff_create_idempotency` add it.
+- **Frontend:** the Add staff form uses the same key lifecycle as the other create forms.
 
 ## Scope and fingerprint
 
@@ -167,8 +184,9 @@ key starts a new request: the expired record is deleted in the same transaction 
 a new one is written.
 
 Expired rows are removed by `npm run idempotency:prune --workspace @medicare/server`,
-which runs `node dist/cli/pruneIdempotency.js` against `DATABASE_URL`. Schedule it
-at least daily. It deletes only rows whose `expiresAt` has passed. The runtime role
+which runs `node dist/cli/pruneIdempotency.js` against `DATABASE_URL`. Schedule it daily (see the
+runbook). It deletes only rows whose `expiresAt` has passed, in batches of 1,000, and is safe to
+rerun. It prints a count, or exits 1 with a fixed code. The runtime role
 needs `DELETE` on this table; see the [release operations runbook](release-operations.md).
 
 ## Frontend key lifecycle

@@ -41,7 +41,7 @@ function staffPage(data: unknown): StaffPage {
   return { users: data.users.map(member), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } }
 }
 // The request body is rebuilt from the six accepted fields; the password is sent exactly as typed.
-function creation(input: CreateStaffInput) {
+export function creation(input: CreateStaffInput) {
   return {
     firstName: input.firstName.trim(), lastName: input.lastName.trim(), email: input.email.trim(),
     staffNumber: input.staffNumber.trim().toUpperCase(), role: input.role, password: input.password,
@@ -56,7 +56,10 @@ export const staffApi = {
     return staffPage(await request<unknown>(`/staff?${params}`, { signal }))
   },
   get: async (id: string, signal?: AbortSignal) => result(await request<unknown>(path(id), { signal })),
-  create: async (input: CreateStaffInput) => result(await mutation<unknown>('/staff', { method: 'POST', body: JSON.stringify(creation(input)) })),
+  // A retry of an unconfirmed creation reuses its Idempotency-Key, so the account is never created twice.
+  create: async (input: CreateStaffInput, idempotencyKey?: string) => result(await mutation<unknown>('/staff', { method: 'POST', body: JSON.stringify(creation(input)) }, { idempotencyKey })),
+  // Only the new password is sent, exactly as typed; the response never contains it.
+  resetPassword: async (id: string, password: string) => result(await mutation<unknown>(`${path(id)}/reset-password`, { method: 'POST', body: JSON.stringify({ password }) })),
   changeRole: async (id: string, role: BackendRole) => result(await mutation<unknown>(`${path(id)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })),
   changeStatus: async (id: string, status: StaffStatus) => result(await mutation<unknown>(`${path(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) })),
   async revokeSessions(id: string) {

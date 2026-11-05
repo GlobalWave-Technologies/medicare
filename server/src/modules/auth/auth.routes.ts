@@ -5,7 +5,7 @@ import type { Environment } from '../../config/env.js'
 import { requireAuth, requireCsrf, requireTrustedOrigin } from '../../middleware/authentication.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { authContext, auditContext } from './auth.context.js'
-import { login, loginSchema, logout } from './auth.service.js'
+import { changePassword, changePasswordSchema, login, loginSchema, logout } from './auth.service.js'
 import { clearSessionCookie, setSessionCookie } from './cookies.js'
 
 export function authRoutes(db: PrismaClient, env: Pick<Environment, 'NODE_ENV' | 'CLIENT_ORIGIN'>) {
@@ -28,6 +28,17 @@ export function authRoutes(db: PrismaClient, env: Pick<Environment, 'NODE_ENV' |
   router.use(requireAuth(db), requireCsrf(env.CLIENT_ORIGIN))
   router.get('/me', (req, res) => res.json({ success: true, data: { user: authContext(req).principal } }))
   router.get('/csrf', (req, res) => res.json({ success: true, data: { csrfToken: authContext(req).csrfToken } }))
+  router.post('/change-password', rateLimit({
+    windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false,
+    // Counted per signed-in account, not per address: only refused attempts count, so a
+    // stolen session cannot be used to guess the current password at speed.
+    keyGenerator: (req) => authContext(req).principal.id, skipSuccessfulRequests: true,
+    handler: (_req, _res, next) => next(new AppError(429, 'PASSWORD_CHANGE_RATE_LIMITED', 'Too many password change attempts; try again later')),
+  }), async (req, res) => {
+    await changePassword(db, authContext(req), auditContext(req), changePasswordSchema.parse(req.body))
+    clearSessionCookie(res, env.NODE_ENV)
+    res.json({ success: true, data: { passwordChanged: true } })
+  })
   for (const [path, all] of [['/logout', false], ['/logout-all', true]] as const) {
     router.post(path, async (req, res) => {
       await logout(db, authContext(req), auditContext(req), all)

@@ -4,11 +4,13 @@ Release candidate: Step 14, acceptance completed 4 November 2026. Use this guide
 
 ## Signing in and roles
 
-Sign in with your assigned account; there is no role chooser. Admins and Records Officers manage patient demographics and appointments. Doctors see their own appointments and use the clinical-record workflow. An Admin account does not grant clinical-record access. Administrators manage staff accounts in **Staff & Access**; ask one of them for a new account, a role change, or to sign you out after a lost device.
+Sign in with your assigned account; there is no role chooser. Admins and Records Officers manage patient demographics and appointments. Doctors see their own appointments and use the clinical-record workflow. An Admin account does not grant clinical-record access. Administrators manage staff accounts in **Staff & Access**; ask one of them for a new account, a role change, a new password if you forget yours, or to sign you out after a lost device.
+
+To change your own password, select **Change password** at the bottom of the menu. Enter your current password and the new one twice (15 to 128 characters; spaces are allowed). You are then signed out on every device and sign in again with the new password. Never share your password; support staff will never ask for it.
 
 Repeated failed sign-in attempts are temporarily limited (10 failures in 15 minutes). Workstations that share one network address share this limit, so check your email and password carefully. If you see "Too many sign-in attempts", wait for the time shown and tell support if it keeps happening.
 
-The menu lists only the workspaces your role can use: Overview, Patients, Appointments, Medical Records (doctors), Staff & Access (administrators), Reports and Notifications. Choosing a workspace from the menu always returns to its main list. Your name and role are shown at the bottom of the menu.
+The menu lists only the workspaces your role can use: Overview, Patients, Appointments, Medical Records (doctors), Staff & Access (administrators), Reports and Notifications. Choosing a workspace from the menu always returns to its main list. Your name and role are shown at the bottom of the menu. Under **Theme**, just above your name, choose **Light**, **Dark** or **System** (follows your device's setting). The same choice is on the sign-in screen. It applies at once and is remembered on this device only; it is a display setting and stores nothing about you.
 
 Everyone starts on **Overview**, which shows the figures for their own role. **Reports** shows activity over a chosen period. Report exports, printing and downloads are not available in this release; do not promise them to staff or customers.
 
@@ -72,7 +74,7 @@ Administrators can send a **New broadcast** to all active staff or to one role. 
 
 Only administrators see **Staff & Access**. It lists every staff account with its role and status, and the totals at the top count all accounts, not just the page shown. Filter by role or status; there is no name search.
 
-**Add staff member** creates an account that can sign in straight away. Enter the institution staff number (STF- followed by 6 to 32 letters or digits) and a work email that no other account uses. Neither these nor the name can be changed later on this screen, so check them before creating the account. Choose the role deliberately. Set an initial password of 15 to 128 characters and give it to the person only through the hospital's approved secure channel, never by ordinary email, chat or ticket; it is not shown again. If creation "could not be confirmed", refresh the directory before trying again. A message that the email is already in use straight after that may mean the first attempt worked.
+**Add staff member** creates an account that can sign in straight away. Enter the institution staff number (STF- followed by 6 to 32 letters or digits) and a work email that no other account uses. Neither these nor the name can be changed later on this screen, so check them before creating the account. Choose the role deliberately. Set an initial password of 15 to 128 characters and give it to the person only through the hospital's approved secure channel, never by ordinary email, chat or ticket; it is not shown again. If creation "could not be confirmed", select **Create account** again without changing anything: the account will not be created twice. A message that the email is already in use after you changed the form may mean the first attempt worked; check the directory.
 
 Select **Manage** to open an account. Every change asks for confirmation and takes effect only when the server confirms it:
 
@@ -80,8 +82,9 @@ Select **Manage** to open an account. Every change asks for confirmation and tak
 - **Suspend account** signs the person out and blocks sign-in until you select **Reactivate account**. Use it for leave or while access is reviewed.
 - **Disable account** is permanent under the current policy and cannot be reversed; the account stays on record. Use it only when the person must never regain access with this account. You must tick a confirmation first.
 - **Sign out all sessions** signs the person out on every device without changing their status, for example after a lost device or an unattended shared computer.
+- **Reset password** gives someone who forgot their password, or whose password may be known to others, a new one, and signs them out everywhere. **Set password** gives a pending account its first password; activate the account separately. Hand the password over only through the hospital's approved secure channel. It is never shown again, and you cannot reset your own password here: use **Change password** in the menu.
 
-At least one active administrator must always remain; the system refuses any change that would leave none. Changing, suspending or signing out your own account signs you out immediately, so keep a second active administrator who can restore access. Password reset is not available in this release; agree a local procedure with support before rollout.
+At least one active administrator must always remain; the system refuses any change that would leave none. Changing, suspending or signing out your own account signs you out immediately, so keep a second active administrator who can restore access. There is no emailed reset link: a forgotten password is replaced by an administrator. Agree how staff reach an administrator out of hours.
 
 ## Getting help
 

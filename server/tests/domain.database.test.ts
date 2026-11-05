@@ -50,6 +50,8 @@ describe('migrated relational domain', () => {
       '20261009120000_notification_workflow',
       '20261010120000_reporting_query_support',
       '20261104120000_mutation_idempotency',
+      '20261106090000_credential_lifecycle_enums',
+      '20261106090100_staff_create_idempotency',
     ])
     expect(migrations.every((migration) => migration.finished_at instanceof Date)).toBe(true)
   })

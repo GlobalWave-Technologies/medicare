@@ -83,7 +83,7 @@ it.each([
   ['STAFF_NUMBER_ALREADY_EXISTS', 409, 'This staff number is already assigned to another account.'],
   ['STAFF_IDENTITY_CONFLICT', 409, 'This email address or staff number is already assigned to another account.'],
   ['INVALID_STATUS_TRANSITION', 409, 'This status change isn’t allowed from the account’s current status. Refresh the account to see its latest status.'],
-  ['CREDENTIALS_REQUIRED', 409, 'This account has no sign-in credentials yet, so it can’t be activated here.'],
+  ['CREDENTIALS_REQUIRED', 409, 'This account has no password yet. Set a password first, then activate the account.'],
   ['LAST_ADMIN_PROTECTION', 409, 'You can’t remove the last active administrator. Make another account an active Admin first.'],
   ['FORBIDDEN', 403, 'Only administrators can manage staff accounts.'],
   ['VALIDATION_ERROR', 400, 'Check the details and try again. Some information wasn’t accepted.'],

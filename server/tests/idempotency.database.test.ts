@@ -316,7 +316,7 @@ describe('privacy, logging and storage integrity', () => {
     expect(stored).not.toMatch(new RegExp([key, 'PrivateGiven', body.lastName, '1991-03-03', '233205554443', 'Private', 'broadcast body', 'Replay notice'].join('|')))
     for (const value of rows.map((item) => JSON.parse(item.row) as Record<string, string>)) {
       expect(value.keyHash).toMatch(/^[0-9a-f]{64}$/); expect(value.requestHash).toMatch(/^[0-9a-f]{64}$/)
-      expect(Object.keys(value).sort()).toEqual(['createdAt', 'encounterId', 'expiresAt', 'id', 'keyHash', 'notificationId', 'operation', 'patientId', 'principalId', 'requestHash'])
+      expect(Object.keys(value).sort()).toEqual(['createdAt', 'encounterId', 'expiresAt', 'id', 'keyHash', 'notificationId', 'operation', 'patientId', 'principalId', 'requestHash', 'staffUserId'])
     }
   })
   it('logs replays by operation only, without the key or payload', async () => {

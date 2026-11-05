@@ -4,6 +4,11 @@ This pass reviewed Medicare as one product, from sign-in to reports, for all thr
 consistency and polish pass. No backend contract, business rule or permission changed, and no
 dependency was added.
 
+**Later change:** the teal colour palette described here has since been replaced by the
+client's original orange-and-white branding, with a matching dark theme. See
+[branding and dark mode](branding-dark-mode.md). The structure, components and behaviour in this
+review are unchanged; the token names stayed the same and now carry a light and a dark value.
+
 ## Areas reviewed
 
 - **Sign-in and session screens:** sign-in, session check, session error, the render-error recovery
@@ -69,8 +74,9 @@ own layout, and a test keeps field, error and focus colours out of them.
 
 - **Surfaces:** `bg`, `surface`, `surface-muted`, `surface-sunken`.
 - **Text:** `deep` for headings and values, `ink` for body text, `muted` for supporting text.
-- **Lines:** `line`, `line-strong`, and `field-border` (3.1:1 against white).
-- **Brand:** `brand`, `brand-strong`, `brand-soft`, `brand-line` and `link`.
+- **Lines:** `line`, `line-strong`, and `field-border` (3:1 or more in both themes).
+- **Brand:** `brand`, `brand-strong`, `brand-soft`, `brand-line` and `link`, now orange, plus
+  `brand-accent` for marks and `brand-mark` for the logo.
 - **Status:** `success`, `warning`, `danger`, `info` and `neutral`, each with a background and a
   border colour.
 - **Focus:** one focus colour everywhere.
@@ -78,7 +84,7 @@ own layout, and a test keeps field, error and focus colours out of them.
 - **Type sizes:** 12, 13 and 14px. Body text is 15px.
 
 A test checks the contrast of every text token on every surface (at least 4.5:1) and of the field
-border (at least 3:1).
+border (at least 3:1), in both the light and the dark theme.
 
 **Typography:**
 
@@ -99,7 +105,8 @@ Clinical narrative is set at a 76-character measure with 1.7 line height.
 - **Primary:** filled brand.
 - **Secondary:** outlined.
 - **Tertiary:** underlined link style.
-- **Danger:** filled red, used for the final confirmation only.
+- **Danger:** filled rose-crimson, clearly different from the orange primary, used for the final
+  confirmation only.
 - **Quiet danger:** red outline, used to start a destructive action.
 - **Caution:** amber outline, used for staff suspension and signing out sessions.
 - **Icon:** 44px square.
@@ -118,7 +125,7 @@ badges keep their icons. Tags (role, notification type, "Your account") are outl
 | Danger | Cancelled, Disabled |
 | Neutral | Archived, Read, Voided |
 | Teal | Confirmed |
-| Indigo | Checked in |
+| Violet | Checked in |
 
 The appointment report's status markers use the same six tones, and a test enforces that.
 
@@ -151,8 +158,8 @@ hover and focus row highlight, and wrapping instead of truncation.
 
 **Brand:** one `Brand` lockup, "Medicare" with "Hospital Records" beneath, used on sign-in, in the
 sidebar, the mobile header, the session check and error screens, and the recovery screen. The
-favicon is the same mark and the tab title is "Medicare – Hospital Records". Nothing loads from
-a remote server.
+favicon is the same mark, in the client's original orange (`#f97316`), and the tab title is
+"Medicare – Hospital Records". Nothing loads from a remote server.
 
 ## Fixes by area
 

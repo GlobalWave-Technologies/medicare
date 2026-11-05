@@ -65,6 +65,7 @@ Demonstrate every row with synthetic (made-up) data, never real patients. Mark o
 | Screens look and behave as one product: the same Medicare wordmark, buttons, badges, dialogs and messages in every module | [ ] | [ ] | [ ] |
 | Appointment, clinical, patient, staff and notification statuses read the same way wherever they appear | [ ] | [ ] | [ ] |
 | After an unconfirmed save, staff follow the on-screen instruction: resubmit the unchanged form where it says that is safe, otherwise check first | [ ] | [ ] | [ ] |
+| Light, Dark and System themes are readable on hospital devices, including saved-password autofill on the sign-in screen in Dark | [ ] | [ ] | [ ] |
 
 ## Notifications
 
@@ -88,7 +89,9 @@ Demonstrate every row with synthetic (made-up) data, never real patients. Mark o
 | Sign out all sessions signs the person out on every device without changing their status | [ ] | [ ] | [ ] |
 | Disabling asks for explicit confirmation, is permanent, and the account cannot sign in again | [ ] | [ ] | [ ] |
 | The last active administrator cannot be demoted, suspended or disabled | [ ] | [ ] | [ ] |
-| Missing password reset, name/email edits and staff search are understood and covered by a local procedure | [ ] | [ ] | [ ] |
+| An administrator resets a forgotten password and sets a pending account's first password; the person is signed out everywhere and only the new password works | [ ] | [ ] | [ ] |
+| Staff change their own password from the menu with their current password and are asked to sign in again | [ ] | [ ] | [ ] |
+| Missing name/email edits, staff search and emailed password reset are understood and covered by a local procedure | [ ] | [ ] | [ ] |
 
 ## Overview and reports
 
@@ -122,8 +125,11 @@ Demonstrate every row with synthetic (made-up) data, never real patients. Mark o
 | Acceptance statement | Accepted | Needs change | Not applicable |
 |---|:---:|:---:|:---:|
 | Secure deployment (HTTPS, separate restricted database account, proxy settings) verified on the real hostname | [ ] | [ ] | [ ] |
+| Runtime grants applied with `server/ops/runtime-grants.sql`; the runtime account owns nothing and is not the migration owner | [ ] | [ ] | [ ] |
+| Frontend served with the runbook's Content-Security-Policy and cache headers; the session cookie shows `__Host-`, HttpOnly, Secure and SameSite=Strict | [ ] | [ ] | [ ] |
+| Daily `sessions:prune` and `idempotency:prune` jobs scheduled, with alerts on failure | [ ] | [ ] | [ ] |
 | Monitoring and alert recipients in place | [ ] | [ ] | [ ] |
-| Backup owner named; a restore from a real backup rehearsed and verified | [ ] | [ ] | [ ] |
+| Backup owner named and the runbook's backup decisions table completed; a restore from a real backup rehearsed and verified with `restore-check.sql` | [ ] | [ ] | [ ] |
 | Retention, legal hold and disposal decisions assigned to named hospital owners | [ ] | [ ] | [ ] |
 
 ## Customer acceptance

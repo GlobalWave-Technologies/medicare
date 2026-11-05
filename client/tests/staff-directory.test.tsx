@@ -211,7 +211,7 @@ it('creates the account with the chosen role enum and opens it from the server r
   const server = { ...created, staffNumber: 'STF-SERVER99' }
   vi.mocked(staffApi.create).mockResolvedValue({ user: server }); vi.mocked(staffApi.get).mockResolvedValue({ user: server })
   await render(); await openForm(); await completeForm('DOCTOR_IN_CHARGE'); const before = directoryCalls().length; await submit()
-  expect(staffApi.create).toHaveBeenCalledExactlyOnceWith({ ...validForm, role: 'DOCTOR_IN_CHARGE' })
+  expect(staffApi.create).toHaveBeenCalledExactlyOnceWith({ ...validForm, role: 'DOCTOR_IN_CHARGE' }, expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/))
   expect(dialog()).toBeNull()
   expect(harness.host.querySelector('#staff-detail-title')?.textContent).toBe('Nia Newhire')
   expect(harness.host.querySelector('.staff-notice')?.textContent).toBe('Account created for Nia Newhire (STF-SERVER99). They can sign in now with the initial password you set.')
@@ -262,12 +262,15 @@ it('closes an untouched form without a prompt', async () => {
 it('treats a lost create response as uncertain and flags a later duplicate as a possible earlier success', async () => {
   vi.mocked(staffApi.create).mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await render(); await openForm(); await completeForm(); await submit()
-  expect(dialog()!.querySelector('[role="alert"]')?.textContent).toBe('The new account could not be confirmed and it may already have been created. Refresh the staff directory and check before trying again.')
+  expect(dialog()!.querySelector('[role="alert"]')?.textContent).toBe('The new account could not be confirmed. Select Create account again without changing anything; the account will not be created twice.')
   expect(staffApi.create).toHaveBeenCalledOnce()
   vi.mocked(staffApi.create).mockRejectedValueOnce(new ApiError(409, 'Email is already assigned', 'EMAIL_ALREADY_EXISTS'))
   await submit()
   expect(dialog()!.textContent).toContain('An earlier attempt could not be confirmed, so this account may already exist.')
   expect(staffApi.create).toHaveBeenCalledTimes(2)
+  // The unchanged retry after an unconfirmed result carries the same key, so the server replays instead of creating twice.
+  const [first, second] = vi.mocked(staffApi.create).mock.calls
+  expect(second![1]).toBe(first![1])
 })
 it('never stores or logs the initial password', async () => {
   const setItem = vi.spyOn(Storage.prototype, 'setItem')

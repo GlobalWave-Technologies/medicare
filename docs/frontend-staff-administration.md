@@ -120,11 +120,11 @@ directory and details live only in component memory.
 - **Duplicates:** `EMAIL_ALREADY_EXISTS` and `STAFF_NUMBER_ALREADY_EXISTS` are shown on
   their field, which receives focus once the form is enabled again. The rest of the
   form is kept. `STAFF_IDENTITY_CONFLICT` (a race) appears as a general message.
-- **Uncertain outcome:** staff creation is not idempotency-keyed; email and staff-number
-  uniqueness already prevent a duplicate account. After a network failure or 5xx the
-  form says the account may already have been created. If a later attempt then reports
-  a duplicate, it adds that the earlier attempt may have succeeded and to check the
-  directory.
+- **Uncertain outcome:** staff creation sends an `Idempotency-Key` (Step 17). After a network
+  failure or 5xx the form keeps the key and says to select Create account again without changing
+  anything; the server then returns the account it already created. Changing a field starts a new
+  key. If a later attempt still reports a duplicate, the form adds that the earlier attempt may
+  have succeeded and to check the directory.
 - **Safety:** a pending create locks the form and ignores further submits. Escape and
   backdrop clicks are ignored while it is pending. A partly completed form asks before
   discarding, including on page unload.
@@ -303,16 +303,20 @@ request ID appears as "Support reference". No mutation is retried automatically.
 - **No search:** the API has none; only role and status filters exist.
 - **No identity edits:** names, emails and staff numbers can't be edited, and accounts
   can't be deleted.
-- **Credentials:** no password reset, forced change, credential provisioning for pending
-  accounts or MFA. A pending account without a password can't be activated here.
+- **Credentials:** the detail view has a **Password** section.
+  - **Reset password** (active and suspended accounts) and **Set password** (pending accounts)
+    open a dialog with a new and a confirm field. The confirmation is checked in the browser and
+    never sent.
+  - The dialog warns that a reset signs the person out everywhere, and says the password is never
+    shown again.
+  - Disabled accounts and your own account have no action; you use Change password in the menu
+    instead.
+  - There is no forced change or MFA.
 - **Initial password delivery:** the administrator types it and must deliver it out of
   band.
 - **No timestamps:** the DTO has no created, updated or last sign-in times.
 - **No audit history:** the API does not expose one.
 - **No session list:** sign-out can't report how many sessions existed.
-- **Staff creation is not idempotency-keyed:** after an unconfirmed create the
-  administrator must check the directory; a retry reports a duplicate rather than
-  replaying.
 - **Totals are separate reads:** they can briefly differ from the list during
   concurrent changes.
 - **No proactive last-admin prediction:** the server's refusal is shown instead.

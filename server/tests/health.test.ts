@@ -86,11 +86,36 @@ describe('health and HTTP foundation', () => {
     const response = await request(app).options('/api/v1/health')
       .set('Origin', 'https://client.example.test').set('Access-Control-Request-Method', 'GET').expect(204)
     expect(response.headers['access-control-allow-origin']).toBe('https://client.example.test')
-    expect(response.headers['access-control-expose-headers']).toBe('X-Request-Id,Retry-After')
+    expect(response.headers['access-control-expose-headers']).toBe('X-Request-Id,Retry-After,Idempotency-Replayed')
     expect(response.headers['access-control-allow-credentials']).toBe('true')
     const blocked = await request(app).get('/api/v1/health').set('Origin', 'https://untrusted.example.test').expect(403)
     expect(blocked.body.error.code).toBe('ORIGIN_NOT_ALLOWED')
     expect(blocked.headers['access-control-allow-origin']).toBeUndefined()
+  })
+
+  it('answers CORS preflight only for the exact trusted origin, allowing the headers the client sends', async () => {
+    const { app } = setup()
+    const allowed = await request(app).options('/api/v1/staff').set('Origin', 'https://client.example.test')
+      .set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', 'content-type,x-csrf-token,idempotency-key').expect(204)
+    expect(allowed.headers['access-control-allow-origin']).toBe('https://client.example.test')
+    expect(allowed.headers['access-control-allow-credentials']).toBe('true')
+    expect(allowed.headers['access-control-allow-methods']).toContain('POST')
+    for (const header of ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key']) expect(allowed.headers['access-control-allow-headers']).toContain(header)
+    for (const origin of ['https://untrusted.example.test', 'null', 'https://client.example.test/', 'http://client.example.test',
+      'https://client.example.test.evil.test', 'https://client.example.test:444', 'not a url']) {
+      const refused = await request(app).options('/api/v1/staff').set('Origin', origin).set('Access-Control-Request-Method', 'POST')
+      expect([origin, refused.status, refused.headers['access-control-allow-origin']]).toEqual([origin, 403, undefined])
+    }
+  })
+
+  it('denies every resource, frame and form on API responses and asks for HTTPS', async () => {
+    const { app } = setup()
+    const response = await request(app).get('/api/v1/health').expect(200)
+    expect(response.headers['content-security-policy']).toBe("default-src 'none';frame-ancestors 'none';base-uri 'none';form-action 'none'")
+    expect(response.headers['x-frame-options']).toBe('DENY')
+    expect(response.headers['strict-transport-security']).toMatch(/^max-age=31536000; includeSubDomains$/)
+    expect(response.headers['referrer-policy']).toBe('no-referrer')
+    expect(response.headers['cross-origin-resource-policy']).toBe('same-origin')
   })
 
   it('sets security headers and removes framework disclosure', async () => {
@@ -145,6 +170,20 @@ describe('central error handler in production', () => {
       code: 'INTERNAL_ERROR', message: 'An unexpected error occurred', requestId: response.headers['x-request-id'],
     } })
     expect(response.text).not.toMatch(/stack|SQL|secret|medical history/)
+  })
+
+  it('logs an unexpected failure under the same request ID the response gives, without its message', async () => {
+    let logs = ''
+    const logger = createLogger('info', new Writable({ write(chunk: Buffer, _encoding, callback) { logs += chunk.toString(); callback() } }))
+    const app = express()
+    app.use(requestId)
+    app.use((req, _res, next) => { req.log = logger; next(new Error('synthetic failure with clinical text')) })
+    app.use(errorHandler)
+    const response = await request(app).get('/').set('X-Request-Id', 'support-ref-1701').expect(500)
+    expect([response.headers['x-request-id'], response.body.error.requestId]).toEqual(['support-ref-1701', 'support-ref-1701'])
+    const entry = JSON.parse(logs.trim())
+    expect([entry.level, entry.requestId, entry.code]).toEqual([50, 'support-ref-1701', 'INTERNAL_ERROR'])
+    expect(logs + response.text).not.toMatch(/synthetic failure|clinical text|stack/)
   })
 
   it('does not expose Zod issue details or submitted values', async () => {

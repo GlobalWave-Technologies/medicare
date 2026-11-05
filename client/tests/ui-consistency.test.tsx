@@ -29,6 +29,7 @@ import { BroadcastComposer } from '../src/features/notifications/BroadcastCompos
 import { appointment, clinician, page, patient } from './appointment-fixtures'
 import { clinicalPage, doctor, encounter, reviewed } from './clinical-fixtures'
 import { dashboardFor } from './report-fixtures'
+import { contrast, hex, themeNames, tokenBlocks } from './theme-tokens'
 
 const identity = vi.hoisted(() => ({ role: 'ADMIN' as BackendRole }))
 vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({
@@ -219,29 +220,32 @@ it('keeps the doctor reload control in the booking form but out of the schedule 
   await render(null); await render(<AppointmentForm role="RECORDS_OFFICER" onClose={vi.fn()} onSaved={vi.fn()} />); await tick()
   expect(button('Reload doctors')).toBeDefined()
 })
-it('styles each appointment status the same way in badges and in report markers, with six distinct tones', () => {
-  const shared = css('src/styles/App.css')
-  const tones = ['scheduled', 'confirmed', 'checked_in', 'completed', 'no_show', 'cancelled'].map((status) => {
-    const badge = new RegExp(`\\.status-${status}[ ,][^{]*\\{[^}]*--tone: (#[0-9a-f]{6})`).exec(shared)?.[1] ?? new RegExp(`[ ,]\\.status-${status} \\{ --tone: (#[0-9a-f]{6})`).exec(shared)?.[1]
-    const marker = new RegExp(`\\.tone-${status} \\{ --tone: (#[0-9a-f]{6})`).exec(shared)?.[1]
-    return [status, badge, marker]
-  })
-  for (const [status, badge, marker] of tones) expect([status, badge]).toEqual([status, marker])
-  expect(new Set(tones.map(([, badge]) => badge)).size).toBe(6)
+it('styles each appointment status the same way in badges and in report markers, with six distinct tones in each theme', () => {
+  const shared = css('src/styles/App.css'), tokens = tokenBlocks(shared)
+  const statuses = [['scheduled', 'scheduled'], ['confirmed', 'confirmed'], ['checked_in', 'checked-in'], ['completed', 'completed'], ['no_show', 'no-show'], ['cancelled', 'cancelled']]
+  for (const [status, mark] of statuses) expect(shared).toContain(`.status-${status}, .tone-${status} { --tone: var(--mark-${mark}); }`)
+  for (const theme of themeNames) {
+    const marks = statuses.map(([, mark]) => hex(tokens[theme][`mark-${mark}`]!))
+    expect([theme, new Set(marks).size]).toEqual([theme, 6])
+    for (const mark of marks) expect([theme, mark, contrast(mark, hex(tokens[theme].surface!)) >= 3]).toEqual([theme, mark, true])
+  }
   for (const file of ['src/features/appointments/appointments.css', 'src/features/reports/reports.css']) expect(css(file)).not.toMatch(/\.(status|tone)-(scheduled|confirmed|checked_in|completed|no_show|cancelled)\s*\{/)
 })
-it('keeps shared colour tokens readable: text at 4.5:1 and field borders at 3:1', () => {
-  const shared = css('src/styles/App.css'), token = (name: string) => { const hex = new RegExp(`--${name}: #([0-9a-f]{6}|[0-9a-f]{3});`).exec(shared)![1]!; return `#${hex.length === 3 ? hex.replace(/./g, '$&$&') : hex}` }
-  const luminance = (hex: string) => { const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((c) => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! }
-  const ratio = (a: string, b: string) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x! + 0.05) / (y! + 0.05) }
-  for (const text of ['ink', 'deep', 'muted', 'brand', 'link', 'success', 'warning', 'danger', 'info', 'neutral']) for (const surface of ['surface', 'bg', 'surface-muted']) expect([text, surface, ratio(token(text), token(surface)) >= 4.5]).toEqual([text, surface, true])
-  for (const tone of ['success', 'warning', 'danger', 'info', 'neutral']) expect([tone, ratio(token(tone), token(`${tone}-bg`)) >= 4.5]).toEqual([tone, true])
-  expect(ratio(token('field-border'), token('surface'))).toBeGreaterThanOrEqual(3)
-  expect(ratio(token('muted'), token('brand-soft'))).toBeGreaterThanOrEqual(4.5)
+it('keeps shared colour tokens readable in both themes: text at 4.5:1 and field borders at 3:1', () => {
+  const blocks = tokenBlocks(css('src/styles/App.css'))
+  for (const theme of themeNames) {
+    const token = (name: string) => hex(blocks[theme][name]!), ratio = (a: string, b: string) => contrast(token(a), token(b))
+    for (const text of ['ink', 'deep', 'muted', 'brand', 'link', 'success', 'warning', 'danger', 'info', 'neutral']) for (const surface of ['surface', 'bg', 'surface-muted', 'surface-raised', 'surface-hover'])
+      expect([theme, text, surface, ratio(text, surface) >= 4.5]).toEqual([theme, text, surface, true])
+    for (const text of ['ink', 'deep', 'muted']) expect([theme, text, ratio(text, 'surface-sunken') >= 4.5]).toEqual([theme, text, true])
+    for (const tone of ['success', 'warning', 'danger', 'info', 'neutral', 'teal', 'violet']) expect([theme, tone, ratio(tone, `${tone}-bg`) >= 4.5]).toEqual([theme, tone, true])
+    for (const surface of ['surface', 'surface-muted', 'surface-raised']) expect([theme, surface, ratio('field-border', surface) >= 3]).toEqual([theme, surface, true])
+    for (const text of ['muted', 'deep', 'brand-strong']) expect([theme, text, ratio(text, 'brand-soft') >= 4.5]).toEqual([theme, text, true])
+  }
 })
 it('ships no template assets, placeholder components or third-party sign-in marks', () => {
-  expect(existsSync(resolve('src/assets'))).toBe(false); expect(readdirSync(resolve('public'))).toEqual(['favicon.svg'])
-  const favicon = readFileSync(resolve('public/favicon.svg'), 'utf8'); expect(favicon).toContain('#166775'); expect(favicon).not.toMatch(/863bff|vite/i)
+  expect(existsSync(resolve('src/assets'))).toBe(false); expect(readdirSync(resolve('public'))).toEqual(['favicon.svg', 'theme-init.js'])
+  const favicon = readFileSync(resolve('public/favicon.svg'), 'utf8'); expect(favicon).toContain('#f97316'); expect(favicon).not.toContain('#166775'); expect(favicon).not.toMatch(/863bff|vite/i)
   expect(readFileSync(resolve('index.html'), 'utf8')).toContain('<title>Medicare – Hospital Records</title>')
   for (const file of ['src/components/ui/Unavailable.tsx', 'src/features/appointments/AppointmentPagination.tsx', 'src/features/patients/PatientPagination.tsx']) expect(existsSync(resolve(file))).toBe(false)
   expect(readFileSync(resolve('src/components/branding/BrandMarks.tsx'), 'utf8')).not.toMatch(/Google|Apple/)

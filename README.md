@@ -25,6 +25,15 @@ See the [product stabilization audit](docs/product-ui-ux-audit.md) for fixes, ve
 The [final UI/UX review](docs/final-ui-ux-review.md) records the whole-product consistency pass:
 one shared visual system, one Medicare wordmark, consistent dialogs, statuses, forms and
 feedback, and the responsive and accessibility results.
+[Branding and dark mode](docs/branding-dark-mode.md) records the client's original orange
+palette recovered from the first frontend, its accessible adjustments, the Light, Dark and
+System theme choice and how the themes were verified.
+[Production security hardening](docs/production-security-hardening.md) covers the password
+lifecycle, sessions, cookies, proxy trust, headers, database roles and logging; the
+[release operations runbook](docs/release-operations.md) gives the deploy order, runtime grants
+(`server/ops/runtime-grants.sql`), scheduled maintenance, backups, restores and monitoring.
+[Final release acceptance](docs/final-release-acceptance.md) records the staging acceptance, its
+results, the open conditions and the release decision.
 The backend includes staff authentication and patient demographic APIs, plus
 [appointment scheduling](docs/appointment-api.md).
 The [clinical records API](docs/clinical-records-api.md) adds doctor-authored drafts,

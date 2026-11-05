@@ -2,6 +2,8 @@ import type { BackendRole } from '../../api/auth'
 import { ApiError, authErrorMessage } from '../../api/client'
 import type { CreateStaffInput, StaffMember, StaffStatus } from '../../api/staff'
 import { toUiRole } from '../../app/navigation'
+import { passwordProblem } from '../../lib/password'
+export { PASSWORD_MAX, PASSWORD_MIN, passwordLength } from '../../lib/password'
 
 export const canAdministerStaff = (role: BackendRole) => role === 'ADMIN'
 export const roleLabel = (role: BackendRole): string => toUiRole(role)
@@ -47,11 +49,8 @@ export function statusNotice(from: StaffStatus, member: StaffMember) {
 
 export const NAME_LIMIT = 100
 export const EMAIL_LIMIT = 254
-export const PASSWORD_MIN = 15
-export const PASSWORD_MAX = 128
 export type StaffField = keyof CreateStaffInput | 'confirmPassword'
 export type StaffForm = Record<keyof CreateStaffInput, string> & { confirmPassword: string }
-export const passwordLength = (value: string) => [...value].length
 const printable = (value: string) => [...value].every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
 export const normalizeStaffNumber = (value: string) => value.trim().toUpperCase()
 
@@ -70,11 +69,8 @@ export function staffFormProblems(form: StaffForm): Partial<Record<StaffField, s
   if (!normalizeStaffNumber(form.staffNumber)) problems.staffNumber = 'Enter the staff number.'
   else if (!/^STF-[A-Z0-9]{6,32}$/u.test(normalizeStaffNumber(form.staffNumber))) problems.staffNumber = 'Use STF- followed by 6 to 32 letters or digits, for example STF-A1B2C3.'
   if (!form.role) problems.role = 'Choose a role for this account.'
-  const length = passwordLength(form.password)
-  if (!form.password) problems.password = 'Enter an initial password.'
-  else if (length < PASSWORD_MIN || length > PASSWORD_MAX) problems.password = `Use ${PASSWORD_MIN} to ${PASSWORD_MAX} characters.`
-  else if (!form.password.trim()) problems.password = 'The password can’t be only spaces.'
-  else if (form.password.includes('\0')) problems.password = 'Remove unsupported characters from the password.'
+  const password = passwordProblem(form.password, 'Enter an initial password.')
+  if (password) problems.password = password
   if (!problems.password && form.confirmPassword !== form.password) problems.confirmPassword = 'The passwords don’t match.'
   return problems
 }
@@ -85,7 +81,10 @@ const errors: Record<string, string> = {
   STAFF_NUMBER_ALREADY_EXISTS: 'This staff number is already assigned to another account.',
   STAFF_IDENTITY_CONFLICT: 'This email address or staff number is already assigned to another account.',
   INVALID_STATUS_TRANSITION: 'This status change isn’t allowed from the account’s current status. Refresh the account to see its latest status.',
-  CREDENTIALS_REQUIRED: 'This account has no sign-in credentials yet, so it can’t be activated here.',
+  CREDENTIALS_REQUIRED: 'This account has no password yet. Set a password first, then activate the account.',
+  ACCOUNT_DISABLED: 'A disabled account can’t be given a new password.',
+  SELF_PASSWORD_RESET: 'To change your own password, use Change password in the menu. It asks for your current password.',
+  IDEMPOTENCY_KEY_REUSED: 'These details changed after an unconfirmed attempt. Check the staff directory before creating the account.',
   LAST_ADMIN_PROTECTION: 'You can’t remove the last active administrator. Make another account an active Admin first.',
   FORBIDDEN: 'Only administrators can manage staff accounts.',
 }

@@ -224,7 +224,9 @@ See [test isolation details](../docs/data-model.md#migrations-and-tests).
 After migrations, supply `DATABASE_URL` and `BOOTSTRAP_ADMIN_FIRST_NAME`,
 `BOOTSTRAP_ADMIN_LAST_NAME`, `BOOTSTRAP_ADMIN_EMAIL`,
 `BOOTSTRAP_ADMIN_STAFF_NUMBER`, `BOOTSTRAP_ADMIN_PASSWORD` through a protected
-environment, then run `npm run bootstrap:admin`. There are no default credentials.
+environment, then run `npm run bootstrap:admin`. In a production install without development
+dependencies, run the compiled `node server/dist/cli/bootstrapAdmin.js` instead. There are no
+default credentials.
 Staff numbers use `STF-` plus 6-32 alphanumeric characters, normalized uppercase.
 Passwords support 15-128 Unicode characters and use salted Argon2id (64 MiB,
 three iterations, parallelism one). No password is printed. Clear bootstrap

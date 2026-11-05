@@ -4,10 +4,12 @@ import { ApiError, onSessionInvalidated } from '../../api/client'
 export type AuthState =
   | { status: 'loading'; user: null }
   | { status: 'authenticated'; user: StaffUser }
-  | { status: 'unauthenticated'; user: null }
+  | { status: 'unauthenticated'; user: null; notice?: string }
   | { status: 'error'; user: null; error: unknown }
 
-export function createAuthStore(api = authApi) {
+// Only the calls the store makes; the password change is made by its own dialog.
+type AuthStoreApi = Pick<typeof authApi, 'me' | 'login' | 'csrf' | 'logout' | 'logoutAll'>
+export function createAuthStore(api: AuthStoreApi = authApi) {
   let state: AuthState = { status: 'loading', user: null }
   let operation = 0
   let ending: Promise<void> | undefined
@@ -50,6 +52,8 @@ export function createAuthStore(api = authApi) {
       const { user } = await api.login(email, password)
       if (current === operation) set({ status: 'authenticated', user })
     },
+    // The server has already signed out every session; show sign-in with a confirmation.
+    passwordChanged() { operation += 1; set({ status: 'unauthenticated', user: null, notice: 'Your password was changed and you were signed out everywhere. Sign in with your new password.' }) },
     logout: () => end(false),
     logoutAll: () => end(true),
     dispose: unsubscribe,

@@ -21,7 +21,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "bootstrap:admin": "npm run prisma:generate && tsx src/cli/bootstrapAdmin.ts",
-    "idempotency:prune": "node dist/cli/pruneIdempotency.js"
+    "idempotency:prune": "node dist/cli/pruneIdempotency.js",
+    "sessions:prune": "node dist/cli/pruneSessions.js"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",

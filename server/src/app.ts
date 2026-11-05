@@ -47,7 +47,12 @@ export function createApp(dependencies: AppDependencies) {
     },
     customProps: (req) => ({ requestId: req.id }),
   }))
-  app.use(helmet())
+  // The API only returns JSON: nothing it serves may load resources, be framed or submit forms.
+  // The browser application's own policy is set where client/dist is served (see the runbook).
+  app.use(helmet({
+    contentSecurityPolicy: { useDefaults: false, directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'none'"], formAction: ["'none'"] } },
+    frameguard: { action: 'deny' },
+  }))
   app.use(cors({
     origin: (origin, callback) => {
       if (origin === undefined || origin === dependencies.env.CLIENT_ORIGIN) callback(null, true)
@@ -56,7 +61,7 @@ export function createApp(dependencies: AppDependencies) {
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-CSRF-Token', 'Idempotency-Key'],
     credentials: true,
-    exposedHeaders: ['X-Request-Id', 'Retry-After'],
+    exposedHeaders: ['X-Request-Id', 'Retry-After', 'Idempotency-Replayed'],
     maxAge: 600,
   }))
   app.use(express.json({ limit: '100kb', strict: true }))

@@ -25,6 +25,6 @@ export function AuthGate({ children, store = authStore }: {
       <div className="recovery-actions"><button className="button button-primary" onClick={() => { void store.refreshUser() }}>Try again</button></div>
     </section>
   </main>
-  if (state.status === 'unauthenticated') return <Login onLogin={store.login} />
+  if (state.status === 'unauthenticated') return <Login onLogin={store.login} notice={state.notice} />
   return children(state.user)
 }

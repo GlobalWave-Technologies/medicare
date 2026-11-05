@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client.js'
+import { PRUNE_BATCH_SIZE } from '../../shared/utils/prune.js'
 import { staffSelect } from '../staff/staff.dto.js'
 
 export const SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000
@@ -34,4 +35,17 @@ export function revokeSession(db: Prisma.TransactionClient, id: string) {
 
 export function revokeAllUserSessions(db: Prisma.TransactionClient, staffUserId: string) {
   return db.staffSession.updateMany({ where: { staffUserId, revokedAt: null }, data: { revokedAt: new Date() } })
+}
+
+// Removes sessions whose expiry has passed. An expired session can never authenticate again,
+// and every session expires within eight hours, so revoked sessions follow shortly after their
+// revocation. Active (unexpired) sessions are never touched. Bounded batches keep each statement
+// short; rerunning is safe.
+export async function pruneExpiredSessions(db: PrismaClient, now = new Date()) {
+  let removed = 0
+  for (;;) {
+    const batch = await db.staffSession.findMany({ where: { expiresAt: { lte: now } }, select: { id: true }, take: PRUNE_BATCH_SIZE })
+    if (!batch.length) return removed
+    removed += (await db.staffSession.deleteMany({ where: { id: { in: batch.map(({ id }) => id) }, expiresAt: { lte: now } } })).count
+  }
 }

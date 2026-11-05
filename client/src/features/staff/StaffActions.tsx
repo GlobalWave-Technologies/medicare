@@ -1,10 +1,11 @@
 import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { TriangleAlert } from 'lucide-react'
+import { Eye, EyeOff, TriangleAlert } from 'lucide-react'
 import type { BackendRole } from '../../api/auth'
 import { staffApi, staffRoles, type StaffMember } from '../../api/staff'
 import { Dialog } from '../../components/ui/Dialog'
 import { StaffFeedback, type StaffMutation } from './StaffFeedback'
 import { roleAccess, roleLabel, staffName, statusLabels, type StatusAction } from './staff-utils'
+import { PASSWORD_MAX, PASSWORD_MIN, passwordLength, passwordProblem } from '../../lib/password'
 
 const toneClass: Record<StatusAction['tone'], string> = { positive: 'button-primary', caution: 'staff-button-caution', danger: 'button-danger' }
 const lastAdminNote = 'If this is the last active administrator, the change will be refused.'
@@ -110,4 +111,43 @@ export function SessionsDialog({ member, self, onClose, onRevoked }: { member: S
     onClose={onClose} onSubmit={() => void command.execute()} tone="caution" warning={self
       ? <><p>This immediately signs you out on all devices, <strong>including this browser</strong>. You’ll need to sign in again.</p><p>Your account stays {statusLabels[member.status]}.</p></>
       : <><p>This immediately signs {staffName(member)} out on all devices. Any unsaved work in their open sessions may be lost.</p><p>Their account stays {statusLabels[member.status]} and they can sign in again.</p></>} />
+}
+
+// Sets a pending account's first password, or replaces a forgotten or exposed one. The password is
+// held only in this dialog and sent once; it is never shown again after the server accepts it.
+export function PasswordDialog({ member, onClose, onDone }: { member: StaffMember; onClose: () => void; onDone: (user: StaffMember) => void }) {
+  const setup = member.status === 'PENDING', name = staffName(member), id = useId(), fields = useRef<HTMLDivElement>(null)
+  const [password, setPassword] = useState(''), [confirm, setConfirm] = useState(''), [show, setShow] = useState(false)
+  const [problems, setProblems] = useState<{ password?: string; confirm?: string }>({})
+  const command = useCommand(() => staffApi.resetPassword(member.id, password), ({ user }) => onDone(user))
+  function submit() {
+    const next: { password?: string; confirm?: string } = { password: passwordProblem(password, 'Enter the new password.') }
+    if (!next.password && confirm !== password) next.confirm = 'The passwords don’t match.'
+    setProblems(next); setShow(false)
+    if (next.password || next.confirm) { fields.current?.querySelector<HTMLInputElement>(`[name="${next.password ? 'newPassword' : 'confirmNewPassword'}"]`)?.focus(); return }
+    void command.execute()
+  }
+  const describe = (field: 'password' | 'confirm', ...extra: string[]) => [...extra, problems[field] ? `${id}-${field}-error` : ''].filter(Boolean).join(' ') || undefined
+  return <Confirm title={setup ? 'Set password' : 'Reset password'} mutation="password" command={command} confirm={setup ? 'Set password' : 'Reset password'}
+    confirmClass="staff-button-caution" busyText={setup ? 'Setting password…' : 'Resetting password…'} onClose={onClose} onSubmit={submit} tone="caution" warning={setup
+      ? <><p>This sets the password {name} will use to sign in. The account stays Pending until you activate it.</p>
+        <p>Give the password to {name} through your hospital’s approved secure channel. It isn’t shown again after you save it.</p></>
+      : <><p>This replaces {name}’s password and <strong>immediately signs them out on all devices</strong>. Their old password stops working.</p>
+        <p>Give the new password to {name} through your hospital’s approved secure channel. It isn’t shown again after you save it. Medicare never emails or displays passwords.</p></>}>
+    <div ref={fields} className="staff-password">
+      <div className="staff-password-heading"><strong>New password</strong>
+        <button type="button" className="button button-ghost staff-password-toggle" aria-pressed={show} aria-controls={`${id}-password ${id}-confirm`} onClick={() => setShow((value) => !value)}>
+          {show ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}{show ? 'Hide passwords' : 'Show passwords'}</button></div>
+      <p id={`${id}-help`} className="field-helper">{PASSWORD_MIN} to {PASSWORD_MAX} characters; spaces are allowed.</p>
+      <div className="staff-form-row">
+        <label>New password<input id={`${id}-password`} name="newPassword" type={show ? 'text' : 'password'} value={password} autoComplete="new-password" spellCheck={false}
+          aria-invalid={Boolean(problems.password)} aria-describedby={describe('password', `${id}-help`, `${id}-count`)} onChange={(event) => { setPassword(event.target.value); setProblems({}) }} />
+          <span id={`${id}-count`} className="field-helper">{passwordLength(password)} of at least {PASSWORD_MIN} characters</span>
+          {problems.password && <span id={`${id}-password-error`} className="staff-field-error">{problems.password}</span>}</label>
+        <label>Confirm new password<input id={`${id}-confirm`} name="confirmNewPassword" type={show ? 'text' : 'password'} value={confirm} autoComplete="new-password" spellCheck={false}
+          aria-invalid={Boolean(problems.confirm)} aria-describedby={describe('confirm')} onChange={(event) => { setConfirm(event.target.value); setProblems({}) }} />
+          {problems.confirm && <span id={`${id}-confirm-error`} className="staff-field-error">{problems.confirm}</span>}</label>
+      </div>
+    </div>
+  </Confirm>
 }

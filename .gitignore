@@ -47,6 +47,10 @@ build/
 /server/.agents/
 /server/.claude/
 /server/.windsurf/
+/server/skills-lock.json
+
+# Local release-QA scratch outputs - never commit
+/.release-*
 
 # Local doctor credential file - never commit
 /client/doctor.json

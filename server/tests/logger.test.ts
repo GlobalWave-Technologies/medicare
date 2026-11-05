@@ -12,6 +12,8 @@ it('redacts common secret fields and strips error messages/stacks', () => {
     summary: 'summary-secret', series: 'series-secret', snapshot: 'snapshot-secret',
     payload: { report: 'nested-report-secret', metrics: 'nested-metrics-secret', series: 'nested-series-secret' },
     password: 'password-secret', DATABASE_URL: 'database-secret',
+    currentPassword: 'current-password-secret', newPassword: 'new-password-secret', confirmPassword: 'confirm-password-secret',
+    change: { currentPassword: 'nested-current-secret', newPassword: 'nested-new-secret' }, idempotencyKey: 'idempotency-key-secret',
     title: 'notice-title-secret', message: 'notice-message-secret', notification: { value: 'notice-payload-secret' },
     delivery: { title: 'nested-title-secret', message: 'nested-message-secret' },
     clinicalNotes: 'clinical-note-secret', historySummary: 'history-summary-secret', treatmentPlan: 'treatment-plan-secret',
@@ -38,5 +40,6 @@ it('redacts common secret fields and strips error messages/stacks', () => {
   expect(output).not.toMatch(/patient-name-secret|dob-secret|phone-secret|email-secret|address-secret|contact-secret|search-secret|patient-payload-secret/)
   expect(output).not.toMatch(/session-secret|session-hash-secret|csrf-secret|uppercase-cookie-secret|uppercase-auth-secret|uppercase-set-cookie-secret|nested-session-secret/)
   expect(output).not.toMatch(/password-secret|database-secret|token-secret|medical-secret|auth-secret|cookie-secret|body-secret|internal-secret|bootstrap-secret|hash-secret|test-db-secret/)
+  expect(output).not.toMatch(/current-password-secret|new-password-secret|confirm-password-secret|nested-current-secret|nested-new-secret|idempotency-key-secret/)
   expect(JSON.parse(output).err).toEqual({ type: 'Error', code: 'INTERNAL_ERROR' })
 })

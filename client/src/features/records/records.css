@@ -9,7 +9,7 @@
 .clinical-open { font-size: 15px; font-variant-numeric: tabular-nums; }
 .clinical-history { list-style: none; display: grid; gap: 10px; margin: 16px 0 0; padding: 0; }
 .clinical-history article { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); transition: border-color .15s, background-color .15s; }
-.clinical-history article:hover, .clinical-history article:focus-within { border-color: #8fb3bd; background: #fbfdfd; }
+.clinical-history article:hover, .clinical-history article:focus-within { border-color: var(--brand-line); background: var(--surface-hover); }
 .clinical-history-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .clinical-history p { margin: 4px 0 0; color: var(--ink); font-size: var(--text-md); }
 .clinical-history .clinical-history-meta { color: var(--muted); }
@@ -30,7 +30,7 @@
 .clinical-code { color: var(--muted); font-size: var(--text-sm); }
 .clinical-text { max-width: 76ch; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--deep); line-height: 1.7; }
 .clinical-empty { color: var(--muted); }
-.clinical-amendments { border-left: 4px solid #5c8e9c; background: #f7fbfc; }
+.clinical-amendments { border-left: 4px solid var(--info-line); background: var(--surface-muted); }
 .clinical-amendments ol { margin: 0; padding-left: 20px; }
 .clinical-amendments li + li { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
 .clinical-amendments article > p:first-child { margin: 0 0 4px; color: var(--muted); font-size: var(--text-md); }

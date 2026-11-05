@@ -26,8 +26,12 @@ it('opens a detail panel with only the safe account fields, read fresh from the 
     ['Staff number', 'STF-REC00002'], ['Work email', 'rhea.records@example.test']])
   expect(harness.host.querySelector('.staff-detail-tags')?.textContent).toBe('Records OfficerActive')
   expect(harness.host.querySelector<HTMLElement>('.staff-workspace')!.hidden).toBe(true)
-  expect(text()).not.toMatch(/password|hash|token|session id|created|updated|last login/i)
-  expect(Array.from(harness.host.querySelectorAll('.staff-section h3')).map((h3) => h3.textContent)).toEqual(['Role', 'Account access', 'Sessions'])
+  // The only password content is the fixed Password section with its action: no value, hash or token is ever shown.
+  const password = section('Password').textContent!
+  expect(password).toBe('PasswordReplace a forgotten or exposed password. This signs the person out on all devices.Reset password')
+  expect(text().replace(password, '')).not.toMatch(/password|hash|token|session id|created|updated|last login/i)
+  expect(text()).not.toMatch(/hash|token|argon2|session id|last login/i)
+  expect(Array.from(harness.host.querySelectorAll('.staff-section h3')).map((h3) => h3.textContent)).toEqual(['Role', 'Account access', 'Sessions', 'Password'])
 })
 it('moves focus to the detail heading and back to the same row action', async () => {
   await open(officer)
@@ -150,7 +154,7 @@ it('activates a pending account and explains missing credentials safely', async 
   await open(pending); await click('Activate account')
   expect(warning()).toContain('Pat Pending will be able to sign in with the credentials already set for this account.')
   await press(confirmButton())
-  expect(dialog()!.querySelector('[role="alert"]')?.textContent).toBe('This account has no sign-in credentials yet, so it can’t be activated here.')
+  expect(dialog()!.querySelector('[role="alert"]')?.textContent).toBe('This account has no password yet. Set a password first, then activate the account.')
   await press(confirmButton()); expect(notice()).toBe('Account activated. Pat Pending can now sign in.')
 })
 it('requires explicit acknowledgement before permanently disabling an account', async () => {

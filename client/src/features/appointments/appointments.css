@@ -27,7 +27,7 @@
 .appointment-picker p { margin: 6px 0 10px; }
 .appointment-patient-results { list-style: none; margin: 12px 0 0; padding: 0; max-height: 240px; overflow-y: auto; display: grid; gap: 6px; }
 .appointment-patient-results button { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--deep); font-weight: 600; text-align: left; overflow-wrap: anywhere; }
-.appointment-patient-results button:hover { border-color: var(--field-border); background: #fbfdfd; }
+.appointment-patient-results button:hover { border-color: var(--field-border); background: var(--surface-hover); }
 .appointment-patient-results small { display: block; margin-top: 2px; color: var(--muted); font-weight: 400; }
 .appointment-clinician-picker { display: grid; gap: 6px; }
 .appointment-clinician-picker > .button { justify-self: start; }

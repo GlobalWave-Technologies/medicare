@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { LogOut, Menu } from 'lucide-react'
+import { KeyRound, LogOut, Menu } from 'lucide-react'
 import type { View } from '../types/index'
 import { navItemsByRole, roleLabels, toUiRole, allowedView, viewLabels } from './navigation'
 import { AuthGate } from '../features/auth/AuthGate'
+import { ChangePasswordDialog } from '../features/auth/ChangePasswordDialog'
 import { authStore } from '../features/auth/auth-store'
 import { ApiError, authErrorMessage } from '../api/client'
 import type { StaffUser } from '../api/auth'
 import { Brand } from '../components/branding/BrandMarks'
 import { Dialog } from '../components/ui/Dialog'
 import { ErrorBoundary } from '../components/ui/ErrorBoundary'
+import { ThemeControl } from '../components/ui/ThemeControl'
 import { Overview } from '../features/dashboard/Overview'
 import { Patients } from '../features/patients/Patients'
 import { PatientModal } from '../features/patients/PatientModal'
@@ -56,7 +58,7 @@ function AuthenticatedApp({ user }: { user: StaffUser }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false), [visit, setVisit] = useState(0)
   const [showPatientForm, setShowPatientForm] = useState(false), [showAppointmentForm, setShowAppointmentForm] = useState(false)
   const [patientRefreshKey, setPatientRefreshKey] = useState(0), [appointmentRefreshKey, setAppointmentRefreshKey] = useState(0)
-  const [signingOut, setSigningOut] = useState(false), [logoutError, setLogoutError] = useState<unknown>(null)
+  const [signingOut, setSigningOut] = useState(false), [logoutError, setLogoutError] = useState<unknown>(null), [changingPassword, setChangingPassword] = useState(false)
   const logoutPending = useRef(false), heading = useRef<HTMLHeadingElement>(null)
   const role = toUiRole(user.role), view = allowedView(user.role, requestedView)
   const navItems = navItemsByRole[role]
@@ -85,8 +87,9 @@ function AuthenticatedApp({ user }: { user: StaffUser }) {
     <Icon size={20} aria-hidden="true" /><span>{viewLabels[label]}</span>
     {label === 'Notifications' && unreadCount > 0 && <><span className="nav-badge" aria-hidden="true">{compactCount(unreadCount)}</span><span className="visually-hidden">{unreadLabel(unreadCount)}</span></>}
   </button>)}</nav>
-  const identity = <div className="sidebar-bottom"><div className="sidebar-identity"><span className="avatar" aria-hidden="true">{user.firstName[0]}{user.lastName[0]}</span>
-    <div><span className="visually-hidden">Signed in as </span><strong>{name}</strong><span>{roleLabels[role]}</span></div></div></div>
+  const identity = <div className="sidebar-bottom"><ThemeControl /><div className="sidebar-identity"><span className="avatar" aria-hidden="true">{user.firstName[0]}{user.lastName[0]}</span>
+    <div><span className="visually-hidden">Signed in as </span><strong>{name}</strong><span>{roleLabels[role]}</span></div></div>
+    <button type="button" className="button-link sidebar-password" onClick={() => { setIsMenuOpen(false); setChangingPassword(true) }}><KeyRound size={16} aria-hidden="true" />Change password</button></div>
   return <div className="app-shell">
     <a className="skip-link" href="#page-heading">Skip to main content</a>
     <aside className="sidebar desktop-sidebar"><Brand />
@@ -122,6 +125,7 @@ function AuthenticatedApp({ user }: { user: StaffUser }) {
         {showAppointmentForm && canManageAppointments(user.role) && <AppointmentForm role={user.role} onClose={() => setShowAppointmentForm(false)} onSaved={(appointment) => { setAppointmentSelection({ id: appointment.id, initialAppointment: appointment }); setAppointmentRefreshKey((n) => n + 1); setView('Appointments') }} />}
       </div>
     </main>
+    {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} onChanged={() => authStore.passwordChanged()} />}
     {isMenuOpen && <Dialog title="Workspace navigation" kind="navigation" closeLabel="Close navigation" onClose={() => setIsMenuOpen(false)}><div className="sidebar mobile-sidebar">{navigation}{identity}</div></Dialog>}
   </div>
 }

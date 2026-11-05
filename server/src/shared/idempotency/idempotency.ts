@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto'
 import type { Request, Response } from 'express'
 import type { IdempotentOperation, Prisma, PrismaClient } from '../../generated/prisma/client.js'
 import { AppError } from '../errors/AppError.js'
+import { PRUNE_BATCH_SIZE } from '../utils/prune.js'
 
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 export const IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1000
@@ -13,8 +14,8 @@ export interface IdempotencyScope {
   keyHash: string
   requestHash: string
 }
-export type IdempotentResource = { patientId: string } | { encounterId: string } | { notificationId: string }
-export type StoredResource = { patientId: string | null; encounterId: string | null; notificationId: string | null }
+export type IdempotentResource = { patientId: string } | { encounterId: string } | { notificationId: string } | { staffUserId: string }
+export type StoredResource = { patientId: string | null; encounterId: string | null; notificationId: string | null; staffUserId: string | null }
 export interface IdempotentResult<T> { value: T; replayed: boolean }
 
 // Sorted keys and dropped undefined values make the fingerprint independent of
@@ -55,7 +56,7 @@ export async function idempotent<T>(tx: Prisma.TransactionClient, scope: Idempot
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(1296385108, hashtext(${`${scope.principalId}:${scope.operation}:${scope.keyHash}`}))`
     const stored = await tx.idempotencyRecord.findUnique({
       where: { principalId_operation_keyHash: { principalId: scope.principalId, operation: scope.operation, keyHash: scope.keyHash } },
-      select: { id: true, requestHash: true, expiresAt: true, patientId: true, encounterId: true, notificationId: true },
+      select: { id: true, requestHash: true, expiresAt: true, patientId: true, encounterId: true, notificationId: true, staffUserId: true },
     })
     if (stored && stored.expiresAt > new Date()) {
       if (stored.requestHash !== scope.requestHash) {
@@ -80,6 +81,12 @@ export function markReplay(req: Request, res: Response, scope: IdempotencyScope 
   req.log.info({ requestId: req.id, operation: scope.operation, idempotencyReplayed: true }, 'Idempotent request replayed')
 }
 
+// Removes records past their 24-hour window in bounded batches; rerunning is safe.
 export async function pruneExpiredIdempotencyRecords(db: PrismaClient, now = new Date()) {
-  return (await db.idempotencyRecord.deleteMany({ where: { expiresAt: { lte: now } } })).count
+  let removed = 0
+  for (;;) {
+    const batch = await db.idempotencyRecord.findMany({ where: { expiresAt: { lte: now } }, select: { id: true }, take: PRUNE_BATCH_SIZE })
+    if (!batch.length) return removed
+    removed += (await db.idempotencyRecord.deleteMany({ where: { id: { in: batch.map(({ id }) => id) }, expiresAt: { lte: now } } })).count
+  }
 }

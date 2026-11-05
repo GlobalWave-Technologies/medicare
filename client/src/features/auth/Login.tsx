@@ -6,6 +6,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { Brand } from '../../components/branding/BrandMarks'
+import { ThemeControl } from '../../components/ui/ThemeControl'
 import {
   ApiError,
   authErrorMessage,
@@ -13,9 +14,10 @@ import {
 
 type LoginProps = {
   onLogin: (email: string, password: string) => Promise<void>
+  notice?: string
 }
 
-export function Login({ onLogin }: LoginProps) {
+export function Login({ onLogin, notice }: LoginProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -86,6 +88,8 @@ export function Login({ onLogin }: LoginProps) {
           <p className="login-helper">
             Use your registered hospital staff email to continue.
           </p>
+
+          {notice && <p role="status" className="notice login-notice">{notice}</p>}
 
           <form onSubmit={handleSubmit} aria-busy={submitting}>
             <label htmlFor="login-email">
@@ -160,8 +164,11 @@ export function Login({ onLogin }: LoginProps) {
           </div>
         </div>
 
-        <div className="login-copyright">
-          © 2026 Medicare Hospital Records
+        <div className="login-meta">
+          <ThemeControl />
+          <div className="login-copyright">
+            © 2026 Medicare Hospital Records
+          </div>
         </div>
       </div>
     </div>

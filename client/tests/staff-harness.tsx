@@ -19,6 +19,7 @@ export function setup() {
   vi.spyOn(staffApi, 'changeRole').mockImplementation(async (id, role) => ({ user: { ...everyone.find((member) => member.id === id)!, role } }))
   vi.spyOn(staffApi, 'changeStatus').mockImplementation(async (id, status) => ({ user: { ...everyone.find((member) => member.id === id)!, status } }))
   vi.spyOn(staffApi, 'revokeSessions').mockResolvedValue({ revoked: true })
+  vi.spyOn(staffApi, 'resetPassword').mockImplementation(async (id) => ({ user: everyone.find((member) => member.id === id)! }))
   vi.spyOn(window, 'confirm').mockReturnValue(false)
 }
 export async function teardown() {

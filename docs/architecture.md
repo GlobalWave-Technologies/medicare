@@ -47,7 +47,7 @@ without patient data or extra resource privileges. There is no external delivery
 or background worker. The
 [notification frontend](frontend-notification-integration.md) consumes this API.
 
-Patient registration, encounter creation and broadcasts accept an optional
+Patient registration, encounter creation, broadcasts and staff creation accept an optional
 `Idempotency-Key` ([mutation idempotency](idempotency.md)). `shared/idempotency`
 validates the header and stores only a key digest and a keyed digest of the
 accepted input in `IdempotencyRecord`. Each record is scoped to the signed-in
@@ -59,6 +59,18 @@ resends replay instead of writing twice. Replays return the same resource with
 24 hours and are pruned by `npm run idempotency:prune`. The frontend's
 `submissionKeys()` keeps one in-memory key per payload, reuses it only after an
 unconfirmed outcome and never retries on its own.
+
+The credential lifecycle adds `POST /api/v1/auth/change-password` (own password; signs out every
+session) and `POST /api/v1/staff/:id/reset-password` (Admin; signs out the target). Scheduled
+maintenance commands live in `server/src/cli/`:
+
+- `bootstrap:admin`;
+- `sessions:prune`;
+- `idempotency:prune`.
+
+Operator SQL lives in `server/ops/`: `runtime-grants.sql` for the restricted runtime role and
+`restore-check.sql` for restore verification. See
+[production security hardening](production-security-hardening.md).
 
 Configuration is centralized in `server/src/config/env.ts`. The singleton Prisma
 client uses the PostgreSQL adapter. The domain schema now separates staff,
@@ -121,19 +133,22 @@ Overview and Reports are described under Backend integration below.
 
 ## Frontend conventions
 
-- `app/` owns application composition and navigation derived from backend roles.
+- `app/` owns application composition, navigation derived from backend roles, and the theme
+  preference (`app/theme.ts`: Light, Dark or System, stored only as `medicare-theme`).
+  `public/theme-init.js` applies the same preference before the first paint.
 - `api/` owns credentialed transport, in-memory CSRF and safe auth DTOs;
   `features/auth/` owns the auth store, login and protected application gate.
 - `features/<domain>/` owns feature screens and forms. Add feature-specific
   hooks, API calls, and tests alongside their implementations.
 - `components/` contains UI reused across features: the `Brand` wordmark, `Dialog`
-  (compact, standard and wide sizes), `Pagination`, `LoadingRows` and the error boundary.
+  (compact, standard and wide sizes), `Pagination`, `LoadingRows`, `ThemeControl` and the error boundary.
 - `types/` contains shared frontend types, not a server API contract.
-- `styles/App.css` owns the design system: colour, radius, shadow and type tokens, and the
+- `styles/App.css` owns the design system: colour tokens for the light theme on `:root` and the
+  dark theme on `[data-theme="dark"]`, radius, shadow and type tokens, and the
   shared shell, button, field, badge, feedback, empty, loading, table, card, segmented-control,
   pager and dialog styles. Feature stylesheets hold only their own layouts. Appointment
   status tones are shared by badges and report markers (see the
-  [final UI/UX review](final-ui-ux-review.md)).
+  [final UI/UX review](final-ui-ux-review.md) and [branding and dark mode](branding-dark-mode.md)).
 
 Use direct imports, PascalCase component files, and camelCase utilities. Create
 directories when they have real contents. Run `npm run lint` and `npm run build`

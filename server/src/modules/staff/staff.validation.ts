@@ -20,6 +20,7 @@ export const createStaffSchema = bootstrapAdminSchema.extend({ role: z.enum(Staf
 export const roleSchema = z.object({ role: z.enum(StaffRole) }).strict()
 export const statusSchema = z.object({ status: z.enum(StaffStatus) }).strict()
 export const staffIdSchema = z.object({ id: z.uuid() }).strict()
+export const resetPasswordSchema = z.object({ password: passwordSchema }).strict()
 export const staffQuerySchema = z.object({
   ...paginationFields,
   role: z.enum(StaffRole).optional(), status: z.enum(StaffStatus).optional(),

@@ -12,9 +12,29 @@ The Admin-only Staff & Access workspace uses the staff routes below without any
 backend change. It shows only the safe staff DTO and creates accounts with the
 administrator-entered staff number and initial password. It offers only the lifecycle
 transitions listed here. It explains last-admin and other refusals, and returns to
-sign-in after a self change ends the current session. Password reset, forced change and
-credential provisioning for pending accounts remain unimplemented. See the
+sign-in after a self change ends the current session. See the
 [staff administration frontend](frontend-staff-administration.md).
+
+**Credential lifecycle:**
+
+- **Changing your own password** (`POST /auth/change-password`, `{ currentPassword, newPassword }`)
+  requires the current password. It signs out every session of the account, including this one,
+  clears the cookie and records `PASSWORD_CHANGED`.
+  - Refusals: `CURRENT_PASSWORD_INVALID` (400), `PASSWORD_UNCHANGED` (400) and
+    `PASSWORD_CHANGED_ELSEWHERE` (409).
+  - Refused attempts are limited to five per account per 15 minutes
+    (`PASSWORD_CHANGE_RATE_LIMITED`, 429).
+- **Administrator reset** (`POST /staff/:id/reset-password`, `{ password }`, Admin only) sets new
+  credentials without the old password. It signs out every session of the target and records
+  `PASSWORD_RESET`.
+  - It gives a pending account its first password without activating it.
+  - It refuses disabled accounts (`ACCOUNT_DISABLED`) and the administrator's own account
+    (`SELF_PASSWORD_RESET`; use Change password).
+- **Policy and handling:** both use the same 15–128 character policy and Argon2id. No password,
+  confirmation or digest is returned, logged or audited.
+- **Not available:** an emailed reset link or self-service recovery.
+
+See [production security hardening](production-security-hardening.md).
 
 ## Sessions and cookies
 
@@ -133,8 +153,11 @@ and `password`. The institution staff-number format and 15-128-code-point
 password policy are reused. The account is created ACTIVE with the admin-assigned
 initial password; `passwordChangedAt` records this provisioning time. Passwords
 are neither returned nor logged. Secure delivery of the initial password remains
-an operational responsibility. Forced password change, reset, recovery, email
-verification and MFA are not implemented or implied. The out-of-band CLI remains
+an operational responsibility. Creation accepts an `Idempotency-Key`: an identical resend by the
+same administrator returns the original account (see [mutation idempotency](idempotency.md)).
+Administrators can reset passwords and set a pending account's first password (above). Forced
+password change, self-service recovery, email verification and MFA are not implemented or
+implied. The out-of-band CLI remains
 the sole first-admin bootstrap mechanism; there is no public registration API.
 
 List defaults: `page=1&limit=20`; limit 1-100 and page 1-100000. Optional exact
@@ -193,8 +216,9 @@ counter. The current store is in-process: restart resets it and multiple API
 instances do not share it. **A shared backing store is required before scaling
 the API to multiple instances.** Edge-level limits should supplement this layer.
 
-`TRUSTED_PROXY_CIDRS` is the only added environment variable. Empty (default)
-means no proxy trust. Set a comma-separated list of actual reverse-proxy IPs or
+`TRUSTED_PROXY_CIDRS` is the only added environment variable. In development, empty (the
+default) means no proxy trust. Production refuses to start without it: give the proxy addresses,
+or `none` for direct connections. Set a comma-separated list of actual reverse-proxy IPs or
 CIDRs; booleans, numeric hop counts and /0 networks are rejected. Do not trust
 all peers. The reverse proxy must overwrite forwarded headers and restrict direct
 access to the API. Untrusted forwarding headers cannot select the rate-limit key.

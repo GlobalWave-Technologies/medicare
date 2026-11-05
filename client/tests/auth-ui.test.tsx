@@ -40,6 +40,15 @@ it('waits for session restoration without flashing login or protected content', 
   await act(async () => { complete({ user }) })
   expect(host.textContent).toContain('Protected content')
 })
+it('returns to sign-in with a confirmation after a password change, without the protected content', async () => {
+  const { store } = setup()
+  await act(async () => root.render(<AuthGate store={store}>{() => <p>Protected content</p>}</AuthGate>))
+  expect(host.textContent).toContain('Protected content')
+  await act(async () => store.passwordChanged())
+  expect(host.textContent).not.toContain('Protected content')
+  expect(host.querySelector('.login-notice[role="status"]')?.textContent).toBe('Your password was changed and you were signed out everywhere. Sign in with your new password.')
+  expect(host.querySelector('form')).not.toBeNull()
+})
 it('shows login after a 401 instead of mounting protected content', async () => {
   const { store, api } = setup(); api.me.mockRejectedValue(new ApiError(401, 'Sign in'))
   await act(async () => root.render(<AuthGate store={store}>{() => <p>Protected content</p>}</AuthGate>))
