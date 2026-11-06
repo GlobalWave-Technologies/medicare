@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "https://medicare-production-0ca1.up.railway.app/api/v1/:path*"
+    }
+  ]
+}
