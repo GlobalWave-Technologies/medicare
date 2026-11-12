@@ -3,9 +3,10 @@ import type { StaffMember, StaffPage } from '../src/api/staff'
 
 export const signedIn: StaffUser = {
   id: '10000000-0000-4000-8000-000000000001', staffNumber: 'STF-ADMIN001', firstName: 'Ada', lastName: 'Admin',
-  email: 'ada.admin@example.test', role: 'ADMIN', status: 'ACTIVE',
+  email: 'ada.admin@example.test', role: 'ADMIN', status: 'ACTIVE', mustChangePassword: false,
 }
-export const self: StaffMember = { ...signedIn }
+// The directory entry for the signed-in administrator: staff fields only (no credential state).
+export const self: StaffMember = { id: signedIn.id, staffNumber: signedIn.staffNumber, firstName: signedIn.firstName, lastName: signedIn.lastName, email: signedIn.email, role: signedIn.role, status: signedIn.status }
 export const officer: StaffMember = {
   id: '20000000-0000-4000-8000-000000000002', staffNumber: 'STF-REC00002', firstName: 'Rhea', lastName: 'Records',
   email: 'rhea.records@example.test', role: 'RECORDS_OFFICER', status: 'ACTIVE',

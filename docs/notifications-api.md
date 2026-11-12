@@ -4,6 +4,12 @@ Notifications are persisted operational summaries, not copies of clinical record
 This module reuses Notification (shared content) and NotificationRecipient
 (delivery identity and per-user read state). It provides in-app persistence only.
 
+**Phase 19A.** Appointments were retired, so the appointment automation below no longer runs and
+nothing creates notifications automatically: admissions, room changes and discharges send none.
+Only administrator broadcasts create new notifications. Existing appointment notices stay in
+inboxes with their `APPOINTMENT` target; the product labels them "Past appointment" and no longer
+opens them, because the appointment API has been removed.
+
 ## Permissions and ownership
 
 | Current active role | READ_OWN | MANAGE_OWN | BROADCAST |
@@ -67,7 +73,8 @@ since the sender may not be among the selected recipients.
 
 Existing NotificationType values DIRECT and BROADCAST are reused. Type is a
 presentation filter, not authorization. Resource access must always go through
-its independently authorized API; a notification link grants no appointment access.
+its independently authorized API; a notification link grants no appointment access (and since
+Phase 19A there is no appointment API to open).
 
 ## Listing, counts and first-read state
 
@@ -136,9 +143,9 @@ operational summaries only: no diagnosis, complaint, clinical note, treatment,
 amendment, patient history, password or token. No automated clinical-data copying
 is implemented. Historical/direct-SQL content is not retroactively rewritten.
 
-## Appointment automation
+## Appointment automation (retired)
 
-Only the requested small operational set is implemented. Staff-account, role,
+Retired in Phase 19A; kept for reference. Only the requested small operational set was implemented. Staff-account, role,
 patient and clinical notifications are deferred; no noisy notice is sent for every
 edit or lifecycle transition.
 

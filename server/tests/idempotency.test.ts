@@ -10,6 +10,8 @@ import { patientFingerprint } from '../src/modules/patients/patient.service.js'
 import { encounterFingerprint } from '../src/modules/encounters/encounter.service.js'
 import { createPatientSchema } from '../src/modules/patients/patient.validation.js'
 import { createEncounterSchema } from '../src/modules/encounters/encounter.validation.js'
+import { admissionFingerprint } from '../src/modules/admissions/admission.service.js'
+import { createAdmissionSchema } from '../src/modules/admissions/admission.validation.js'
 import { broadcastSchema } from '../src/modules/notifications/notification.validation.js'
 
 const principal = '11111111-1111-4111-8111-111111111111', key = '3f6c2a9e-8d1b-4c7e-9a52-0b6e4d8f1c37'
@@ -50,12 +52,26 @@ describe('operation fingerprints use accepted, normalized values', () => {
     expect(a).toEqual(b); expect(a).toEqual({ firstName: 'Ama', middleName: null, lastName: 'Mensah', dateOfBirth: null, phone: '+233241234567' })
   })
   it('compares encounter instants, not their offset spelling, and keeps entry order', () => {
-    const input = { patientId: principal, occurredAt: '2026-11-04T09:00:00Z', complaints: [{ description: 'First' }, { description: 'Second' }] }
-    const same = encounterFingerprint(createEncounterSchema.parse({ ...input, occurredAt: '2026-11-04T10:00:00+01:00', roomLabel: '' }))
+    const input = { admissionId: principal, occurredAt: '2026-11-04T09:00:00Z', complaints: [{ description: 'First' }, { description: 'Second' }] }
+    const same = encounterFingerprint(createEncounterSchema.parse({ ...input, occurredAt: '2026-11-04T10:00:00+01:00' }))
     expect(encounterFingerprint(createEncounterSchema.parse(input))).toEqual(same)
     expect(same.occurredAt).toBe('2026-11-04T09:00:00.000Z')
     expect(encounterFingerprint(createEncounterSchema.parse({ ...input, complaints: [...input.complaints].reverse() }))).not.toEqual(same)
-    expect(encounterFingerprint(createEncounterSchema.parse({ ...input, appointmentId: null }))).toEqual(encounterFingerprint(createEncounterSchema.parse(input)))
+    // An empty room clears it; an omitted room uses the admission's room. They write different values.
+    expect(encounterFingerprint(createEncounterSchema.parse({ ...input, roomLabel: '' }))).toEqual(encounterFingerprint(createEncounterSchema.parse({ ...input, roomLabel: null })))
+    expect(scope(encounterFingerprint(createEncounterSchema.parse({ ...input, roomLabel: '' }))).requestHash).not.toBe(scope(same).requestHash)
+    // Medication orders are compared by catalog id and the trimmed dosing fields, never by a typed name.
+    const order = { medicationId: principal, strength: ' 500 mg ', dose: ' 1 tablet ', route: 'Oral', frequency: 'Once daily', duration: '' }
+    expect(encounterFingerprint(createEncounterSchema.parse({ ...input, medications: [order] })).medications)
+      .toEqual([{ medicationId: principal, strength: '500 mg', dose: '1 tablet', route: 'Oral', frequency: 'Once daily', duration: null, notes: null }])
+    expect(encounterFingerprint(createEncounterSchema.parse({ ...input, medications: [{ ...order, strength: '250 mg' }] })))
+      .not.toEqual(encounterFingerprint(createEncounterSchema.parse({ ...input, medications: [order] })))
+  })
+  it('compares admission instants and trimmed rooms; an omitted time stays distinct', () => {
+    const base = { patientId: principal, roomNumber: ' Ward A – Bed 6 ' }
+    expect(admissionFingerprint(createAdmissionSchema.parse({ ...base, admittedAt: '2026-11-04T10:00:00+01:00' })))
+      .toEqual({ patientId: principal, roomNumber: 'Ward A – Bed 6', admittedAt: '2026-11-04T09:00:00.000Z' })
+    expect(admissionFingerprint(createAdmissionSchema.parse(base)).admittedAt).toBeNull()
   })
   it('uses the trimmed broadcast and its exact audience', () => {
     const a = broadcastSchema.parse({ title: ' Briefing ', message: 'Room 2 ', audience: { type: 'ROLE', role: 'ADMIN' } })
@@ -71,7 +87,8 @@ describe('HTTP boundary', () => {
       .set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', 'Content-Type, X-CSRF-Token, Idempotency-Key').expect(204)
     expect(allowed.headers['access-control-allow-origin']).toBe('https://client.example.test')
     expect(allowed.headers['access-control-allow-credentials']).toBe('true')
-    expect(allowed.headers['access-control-allow-headers']).toBe('Content-Type,X-Request-Id,X-CSRF-Token,Idempotency-Key')
+    // X-Background-Refresh marks automatic refreshes so they are not counted as staff activity.
+    expect(allowed.headers['access-control-allow-headers']).toBe('Content-Type,X-Request-Id,X-CSRF-Token,Idempotency-Key,X-Background-Refresh')
     for (const origin of ['https://untrusted.example.test', 'null', '*']) {
       const blocked = await request(app).options('/api/v1/patients').set('Origin', origin)
         .set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', 'Idempotency-Key')

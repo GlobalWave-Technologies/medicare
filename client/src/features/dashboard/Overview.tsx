@@ -1,103 +1,95 @@
+import { PatientNumber } from '../../components/ui/PatientNumber'
 import { useState } from 'react'
-import { ArrowRight, CalendarDays, ClipboardList, FileText, RefreshCw, ShieldCheck, UsersRound } from 'lucide-react'
+import { ArrowRight, Plus, RefreshCw } from 'lucide-react'
 import type { BackendRole } from '../../api/auth'
-import { dashboardApi, type Dashboard, type DashboardQuery } from '../../api/dashboard'
+import { admissionsApi, type AdmissionStatus } from '../../api/admissions'
+import { dashboardApi, type Dashboard } from '../../api/dashboard'
 import type { View } from '../../types/index'
-import { KpiCard, ReportFeedback, ReportSkeleton, SectionHead, StatusBreakdown } from '../reports/ReportParts'
-import { presetRange, rangeLabel } from '../reports/report-time'
-import { formatCount, formatRate, generatedLabel, plural, useKeyedRead } from '../reports/report-utils'
+import { personName } from '../../lib/people'
+import { displayTime } from '../../lib/time'
+import type { PatientView } from '../patients/Patients'
+import { KpiCard, ReportFeedback } from '../reports/ReportParts'
+import { formatCount, plural } from '../reports/report-utils'
+import { ActivityChart } from './ActivityChart'
+import { activitySummary, chartPeriods, periodQuery, useAutoRefresh, useLiveRead, type ChartPeriod } from './dashboard-utils'
 import '../reports/reports.css'
+import './dashboard.css'
 
-type Period = 'today' | 'last7' | 'last30'
-const periods: [Period, string, string][] = [['today', 'Today', 'today'], ['last7', 'Last 7 days', 'in the last 7 days'], ['last30', 'Last 30 days', 'in the last 30 days']]
-type Go = (view: View) => void
-// "Today" lets the server choose its UTC day; other periods are explicit UTC calendar ranges.
-const periodQuery = (value: Period): DashboardQuery => value === 'today' ? {} : presetRange(value, Date.now())
+type Go = (view: View, patientView?: PatientView) => void
+const timeOnly = (value: string) => new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date(value))
 
-function currentCards(data: Dashboard, go: Go) {
-  const { snapshot } = data
-  const unread = <KpiCard key="unread" label="Unread notifications" value={formatCount(snapshot.unreadNotifications)} detail="In your own inbox." action={{ label: 'Open notifications', onClick: () => go('Notifications') }} />
-  if (data.role === 'DOCTOR_IN_CHARGE') return [
-    <KpiCard key="upcoming" label="My upcoming appointments" value={formatCount(snapshot.upcomingAppointments)} detail="Assigned to you, scheduled or confirmed, from now onward." action={{ label: 'View my appointments', onClick: () => go('Appointments') }} />,
-    <KpiCard key="drafts" label="My open drafts" value={formatCount(data.snapshot.currentAuthoredDrafts)} detail="Encounters you started that aren’t finalized yet." action={{ label: 'Open medical records', onClick: () => go('Medical records') }} />,
-    unread,
+// Each card answers one operational question. Admissions and discharges are hospital-wide
+// aggregate counts for every role; a Medical Officer also sees their own unfinished records.
+function cards(data: Dashboard, go: Go) {
+  const admitted = <KpiCard key="admitted" label="Currently admitted" value={formatCount(data.snapshot.currentAdmissions)} detail="Patients in hospital now"
+    action={{ label: 'View admitted patients', onClick: () => go('Patients', 'admitted') }} />
+  const today = [
+    <KpiCard key="admissions" label="Admissions today" value={formatCount(data.today.admissions)} detail="Since midnight (UTC)" />,
+    <KpiCard key="discharges" label="Discharges today" value={formatCount(data.today.discharges)} detail="Since midnight (UTC)"
+      action={{ label: 'View discharged patients', onClick: () => go('Patients', 'discharged') }} />,
   ]
-  const patients = [
-    <KpiCard key="active" label="Active patients" value={formatCount(data.snapshot.activePatients)} detail="Registered and not archived." action={{ label: 'View patients', onClick: () => go('Patients') }} />,
-    <KpiCard key="archived" label="Archived patients" value={formatCount(data.snapshot.archivedPatients)} detail="Kept on record; an archived patient can be reactivated." />,
-  ]
-  const upcoming = <KpiCard key="upcoming" label="Upcoming appointments" value={formatCount(snapshot.upcomingAppointments)} detail="Scheduled or confirmed, from now onward." action={{ label: 'View appointments', onClick: () => go('Appointments') }} />
-  if (data.role === 'RECORDS_OFFICER') return [...patients, upcoming, unread]
-  const staff = data.snapshot.activeStaff
-  return [...patients, <KpiCard key="staff" label="Active staff" value={formatCount(staff.total)}
-    detail={`${plural(staff.admins, 'Admin')} · ${plural(staff.recordsOfficers, 'Records Officer')} · ${plural(staff.doctors, 'Doctor in Charge', 'Doctors in Charge')}`}
-    action={{ label: 'Manage staff', onClick: () => go('Staff') }} />, upcoming, unread]
+  if (data.role === 'DOCTOR_IN_CHARGE') return [admitted, ...today, <KpiCard key="drafts" label="My unfinished records" value={formatCount(data.snapshot.currentAuthoredDrafts)}
+    detail="Drafts to finalize before discharge" action={{ label: 'Open medical records', onClick: () => go('Medical records') }} />]
+  const patients = <KpiCard key="patients" label="Total patients" value={formatCount(data.snapshot.activePatients)}
+    detail={data.snapshot.archivedPatients ? `Active records (${plural(data.snapshot.archivedPatients, 'archived record')} kept separately)` : 'Active patient records'}
+    action={{ label: 'View patients', onClick: () => go('Patients') }} />
+  if (data.role === 'RECORDS_OFFICER') return [admitted, patients, ...today]
+  return [admitted, patients, ...today, <KpiCard key="staff" label="Staff active now" value={formatCount(data.snapshot.staffActiveNow)}
+    detail={`${plural(data.snapshot.staffSignedInToday, 'person', 'people')} signed in today`} action={{ label: 'Open Staff Activity', onClick: () => go('Activity') }} />]
 }
-function periodCards(data: Dashboard) {
-  const { appointments } = data.period
-  const rates = [
-    <KpiCard key="cancellation" label="Cancellation rate" value={formatRate(appointments.cancellationRate)} detail={`${formatCount(appointments.cancelled)} of ${plural(appointments.totalAppointments, 'appointment')} cancelled.`} />,
-    <KpiCard key="no-show" label="No-show rate" value={formatRate(appointments.noShowRate)} detail={`${formatCount(appointments.noShow)} of ${plural(appointments.totalAppointments, 'appointment')} marked no-show.`} />,
-  ]
-  if (data.role === 'DOCTOR_IN_CHARGE') return [
-    <KpiCard key="appointments" label="My appointments" value={formatCount(appointments.totalAppointments)} detail="Assigned to you, with a scheduled start in this period." />,
-    <KpiCard key="encounters" label="Encounters documented" value={formatCount(data.period.clinical.encountersInRange)} detail="Encounters you authored, by encounter date." />,
-    <KpiCard key="finalized" label="Encounters finalized" value={formatCount(data.period.clinical.finalizedEncountersInRange)} detail="Your encounters finalized in this period." />,
-    <KpiCard key="amendments" label="Amendments added" value={formatCount(data.period.clinical.amendmentsInRange)} detail="Amendments you added in this period." />,
-  ]
-  return [
-    <KpiCard key="registered" label="Patients registered" value={formatCount(data.period.patientsRegistered)} detail="New registrations, including patients archived since." />,
-    <KpiCard key="appointments" label="Appointments" value={formatCount(appointments.totalAppointments)} detail="With a scheduled start in this period." />,
-    ...rates,
-  ]
-}
-const shortcuts = (role: BackendRole) => [
-  { view: 'Appointments' as const, icon: CalendarDays, title: role === 'DOCTOR_IN_CHARGE' ? 'My appointments' : 'Appointment operations', text: role === 'DOCTOR_IN_CHARGE' ? 'Review your assigned visits, check in a patient and open their clinical record.' : 'Book visits, manage the schedule and record attendance.' },
-  { view: 'Patients' as const, icon: UsersRound, title: 'Patient directory', text: role === 'DOCTOR_IN_CHARGE' ? 'Find a patient and open their clinical history.' : 'Register patients, update demographics and manage archived records.' },
-  role === 'DOCTOR_IN_CHARGE' ? { view: 'Medical records' as const, icon: FileText, title: 'Clinical records', text: 'Review encounters, complete your drafts and add permanent amendments.' }
-    : role === 'ADMIN' ? { view: 'Staff' as const, icon: ShieldCheck, title: 'Staff & Access', text: 'Add staff accounts, change roles and manage who can sign in.' }
-    : { view: 'Reports' as const, icon: ClipboardList, title: 'Reports', text: 'Review patient registration and appointment activity over a reporting period.' },
-]
 
-export function Overview({ role, onView }: { role: BackendRole; onView: Go }) {
-  const [period, setPeriod] = useState<{ value: Period; query: DashboardQuery }>({ value: 'today', query: {} })
-  const [revision, setRevision] = useState(0)
-  const { data, loading, error } = useKeyedRead(JSON.stringify([period.query, revision]), (signal) => dashboardApi.get(period.query, signal))
-  const choose = (value: Period) => setPeriod({ value, query: periodQuery(value) })
-  const refresh = () => { choose(period.value); setRevision((n) => n + 1) }
-  const phrase = periods.find(([value]) => value === period.value)![2]
-  const doctor = data?.role === 'DOCTOR_IN_CHARGE'
+// The latest stays; the full lists are in Patients.
+function RecentStays({ status, revision, automatic, onOpen }: { status: AdmissionStatus; revision: number; automatic: boolean; onOpen: () => void }) {
+  const { data, error, loading } = useLiveRead(status, revision, (signal) => admissionsApi.list({ status, limit: 5 }, signal, automatic))
+  const current = status === 'ADMITTED', id = `recent-${status.toLowerCase()}`
+  return <section className="panel recent-stays" aria-labelledby={id} aria-busy={loading}>
+    <div className="recent-stays-head"><h2 id={id}>{current ? 'Recent admissions' : 'Recent discharges'}</h2>
+      <button type="button" className="kpi-action" onClick={onOpen}>View all<span className="visually-hidden"> {current ? 'admitted' : 'discharged'} patients</span><ArrowRight size={16} aria-hidden="true" /></button></div>
+    {loading && <div className="recent-skeleton" aria-hidden="true">{[0, 1, 2].map((n) => <span key={n} />)}</div>}
+    {error !== undefined && !data && <ReportFeedback error={error} subject="dashboard" />}
+    {data && (data.items.length ? <ul className="recent-stays-list">{data.items.map((item) => <li key={item.id}>
+      <div><strong>{personName(item.patient)}</strong><PatientNumber className="recent-number" value={item.patient.patientNumber} /></div>
+      <div className="recent-meta"><span>{item.roomNumber}</span><span>{current ? `Admitted ${displayTime(item.admittedAt)}` : `Discharged ${item.dischargedAt ? displayTime(item.dischargedAt) : ''}`}</span></div>
+    </li>)}</ul> : <p className="report-empty-note">{current ? 'No patients are currently admitted.' : 'No discharges yet.'}</p>)}
+  </section>
+}
+
+export function Overview({ role, onView, onRegister }: { role: BackendRole; onView: Go; onRegister?: () => void }) {
+  const [period, setPeriod] = useState<ChartPeriod>('last7')
+  const [tick, refresh, automatic] = useAutoRefresh()
+  const { data, error, loading, updating, sameKey } = useLiveRead(period, tick, (signal) => dashboardApi.get(periodQuery(period, Date.now()), signal, automatic))
+  const phrase = chartPeriods.find(([value]) => value === period)![2]
+  const title = 'Admissions and discharges'
   return <div className="dashboard" aria-busy={loading}>
-    <div className="report-toolbar">
-      <div role="group" aria-label="Activity period" className="report-segments">
-        {periods.map(([value, label]) => <button key={value} type="button" aria-pressed={period.value === value} onClick={() => choose(value)}>{label}</button>)}
-      </div>
-      <div className="report-refresh">
-        <p>{data ? <>Last refreshed <time dateTime={data.generatedAt}>{generatedLabel(data.generatedAt)}</time></> : loading ? 'Loading current figures…' : 'Figures unavailable'}</p>
-        <button type="button" className="button button-ghost" aria-label="Refresh overview" disabled={loading} onClick={refresh}><RefreshCw size={17} aria-hidden="true" />Refresh</button>
-      </div>
+    <div className="dashboard-toolbar">
+      <p className="dashboard-updated" role="status">{data ? <>Updated <time dateTime={data.generatedAt}>{timeOnly(data.generatedAt)}</time>{updating && ' · updating…'}</> : loading ? 'Loading current figures…' : 'Figures unavailable'}</p>
+      <button type="button" className="button button-ghost" aria-label="Refresh overview" disabled={updating || loading} onClick={refresh}><RefreshCw size={17} aria-hidden="true" />Refresh</button>
+      {onRegister && <button type="button" className="button button-primary dashboard-register" onClick={onRegister}><Plus size={17} aria-hidden="true" />Register patient</button>}
     </div>
-    {loading && <ReportSkeleton label="Loading overview…" cards={role === 'DOCTOR_IN_CHARGE' ? 3 : 4} />}
-    {error !== undefined && <ReportFeedback error={error} subject="dashboard" onRetry={refresh} />}
-    {data && <>
-      <section className="panel report-section dashboard-now" aria-labelledby="overview-now">
-        <SectionHead id="overview-now" title={doctor ? 'My current workload' : 'Current status'}><p>Live counts when the overview was refreshed. They don’t depend on the activity period.</p></SectionHead>
-        <div className="kpi-grid">{currentCards(data, onView)}</div>
-      </section>
-      <section className="panel report-section" aria-labelledby="overview-period">
-        <SectionHead id="overview-period" title={`${doctor ? 'My activity' : 'Hospital activity'} ${phrase}`}>
-          <p>{rangeLabel(data.range)} (UTC calendar {period.value === 'today' ? 'day' : 'days'}). {doctor ? 'Only appointments assigned to you and your own clinical work.' : 'Across the whole hospital.'}</p>
-        </SectionHead>
-        <div className="kpi-grid">{periodCards(data)}</div>
-        <StatusBreakdown summary={data.period.appointments} title={doctor ? 'My appointments by current status' : 'Appointments by current status'}
-          empty={`No appointments ${doctor ? 'assigned to you are ' : 'are '}scheduled ${phrase}.`} />
-      </section>
-    </>}
-    <section className="dashboard-shortcuts" aria-labelledby="overview-shortcuts">
-      <h2 id="overview-shortcuts">Your workspaces</h2>
-      <div className="workflow-grid">{shortcuts(role).map(({ view, icon: Icon, title, text }) => <button key={view} type="button" className="workflow-card" onClick={() => onView(view)}>
-        <Icon size={24} aria-hidden="true" /><strong>{title}</strong><span>{text}</span><span className="workflow-link">Open workspace <ArrowRight size={16} aria-hidden="true" /></span>
-      </button>)}</div>
+    {error !== undefined && (data ? <p role="alert" className="dashboard-stale">The latest figures couldn’t be loaded, so the figures from {timeOnly(data.generatedAt)} are shown.
+      <button type="button" className="button-link" onClick={refresh}>Try again</button></p> : <ReportFeedback error={error} subject="dashboard" onRetry={refresh} />)}
+    <section aria-labelledby="overview-now" className="dashboard-now">
+      <h2 id="overview-now" className="visually-hidden">Today</h2>
+      {data ? <div className={`kpi-grid dashboard-kpis${role === 'ADMIN' ? ' kpi-five' : ''}`}>{cards(data, onView)}</div>
+        : loading && <div className={`kpi-grid dashboard-kpis${role === 'ADMIN' ? ' kpi-five' : ''}`} aria-hidden="true">{(role === 'ADMIN' ? [0, 1, 2, 3, 4] : [0, 1, 2, 3]).map((n) => <div key={n} className="kpi-card skeleton-card"><span /><span /></div>)}</div>}
     </section>
+    <section className="panel dashboard-chart" aria-labelledby="activity-title" aria-busy={updating}>
+      <div className="dashboard-chart-head">
+        <div><h2 id="activity-title">{title}</h2>
+          <p id="activity-summary">{data && sameKey ? activitySummary(data.activity.admissions, data.activity.discharges, phrase, data.activity.series) : `Hospital-wide, ${phrase}.`}</p></div>
+        <div role="group" aria-label="Chart period" className="report-segments">
+          {chartPeriods.map(([value, label]) => <button key={value} type="button" aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>)}
+        </div>
+      </div>
+      {loading ? <div className="chart-placeholder" aria-hidden="true"><span /></div>
+        : data && (data.activity.admissions + data.activity.discharges === 0 && sameKey
+          ? <p className="chart-empty">No admission activity recorded for this period.</p>
+          : <ActivityChart series={data.activity.series} title={`${title} per day, ${phrase}`} busy={!sameKey} />)}
+      <p className="chart-note">Counted per UTC calendar day across the whole hospital: admissions by admission time, discharges by discharge time. Updates every minute while this page is open.</p>
+    </section>
+    <div className="recent-stays-grid">
+      <RecentStays status="ADMITTED" revision={tick} automatic={automatic} onOpen={() => onView('Patients', 'admitted')} />
+      {role !== 'DOCTOR_IN_CHARGE' && <RecentStays status="DISCHARGED" revision={tick} automatic={automatic} onOpen={() => onView('Patients', 'discharged')} />}
+    </div>
   </div>
 }

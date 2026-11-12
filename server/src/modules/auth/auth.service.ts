@@ -6,7 +6,7 @@ import { appendAuditEvent } from '../../shared/audit/audit.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { emailSchema } from '../staff/staff.validation.js'
 import { passwordSchema } from '../../shared/security/passwordPolicy.js'
-import { staffSelect } from '../staff/staff.dto.js'
+import { principalSelect } from '../staff/staff.dto.js'
 import { createSession, revokeAllUserSessions, revokeSession } from './session.service.js'
 import { assertCurrentActor, securityTransaction } from './security.transaction.js'
 import type { AuditContext, AuthContext } from './auth.context.js'
@@ -25,7 +25,7 @@ export async function login(db: PrismaClient, input: z.infer<typeof loginSchema>
   const validPassword = await verifyPassword(input.password, candidate?.passwordHash ?? dummy)
   const result = await securityTransaction(db, async (tx) => {
     const current = candidate ? await tx.staffUser.findUnique({ where: { id: candidate.id },
-      select: { ...staffSelect, passwordHash: true } }) : null
+      select: { ...principalSelect, passwordHash: true } }) : null
     if (!validPassword || !current || current.status !== 'ACTIVE' || current.passwordHash !== candidate?.passwordHash) {
       // A random attempt identifier avoids persisting attempted email and avoids
       // falsely attributing an unauthenticated attempt to a real staff actor.
@@ -33,7 +33,10 @@ export async function login(db: PrismaClient, input: z.infer<typeof loginSchema>
         entityId: randomUUID(), metadata: { source: 'API' } })
       return null
     }
-    const user = await tx.staffUser.update({ where: { id: current.id }, data: { lastLoginAt: new Date() }, select: staffSelect })
+    // A temporary password still signs in; the identity tells the client it must be replaced,
+    // and every other protected route refuses the session until it is.
+    const signedInAt = new Date()
+    const user = await tx.staffUser.update({ where: { id: current.id }, data: { lastLoginAt: signedInAt, lastActivityAt: signedInAt }, select: principalSelect })
     const { token, session } = await createSession(tx, user.id)
     await appendAuditEvent(tx, { ...context, actorId: user.id, action: 'LOGIN_SUCCEEDED',
       entityType: 'STAFF_USER', entityId: user.id, metadata: { source: 'API' } })
@@ -72,7 +75,9 @@ export async function changePassword(db: PrismaClient, auth: AuthContext, contex
     if (current?.passwordHash !== stored.passwordHash) {
       throw new AppError(409, 'PASSWORD_CHANGED_ELSEWHERE', 'The password was changed elsewhere')
     }
-    await tx.staffUser.update({ where: { id: auth.principal.id }, data: { passwordHash, passwordChangedAt: new Date() }, select: { id: true } })
+    // Replacing the password, clearing the temporary-password requirement and signing out every
+    // session happen in one transaction: none can be observed without the others.
+    await tx.staffUser.update({ where: { id: auth.principal.id }, data: { passwordHash, passwordChangedAt: new Date(), mustChangePassword: false }, select: { id: true } })
     await revokeAllUserSessions(tx, auth.principal.id)
     await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'PASSWORD_CHANGED',
       entityType: 'STAFF_USER', entityId: auth.principal.id, metadata: { source: 'API' } })

@@ -6,14 +6,14 @@ import { ApiError } from '../src/api/client'
 import { notificationsApi, type InboxNotification, type NotificationPage } from '../src/api/notifications'
 import { Notifications } from '../src/features/notifications/Notifications'
 import type { UnreadCount } from '../src/features/notifications/useNotifications'
-import { displayTime } from '../src/features/appointments/appointment-time'
+import { displayTime } from '../src/lib/time'
 import { appointmentNotice, broadcastNotice, inboxPage, readAt, staff } from './notification-fixtures'
 
-let root: Root, host: HTMLDivElement, unread: UnreadCount, openAppointment: ReturnType<typeof vi.fn<(id: string) => void>>
+let root: Root, host: HTMLDivElement, unread: UnreadCount
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-04T15:00:00Z')); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
-  unread = { count: 1, loading: false, refresh: vi.fn() }; openAppointment = vi.fn()
+  unread = { count: 1, loading: false, refresh: vi.fn() }
   vi.spyOn(notificationsApi, 'list').mockResolvedValue(inboxPage())
   vi.spyOn(notificationsApi, 'get').mockImplementation(async (id) => ({ notification: [appointmentNotice, broadcastNotice].find((item) => item.id === id)! }))
   vi.spyOn(notificationsApi, 'markRead').mockImplementation(async (id) => ({ notification: { ...[appointmentNotice, broadcastNotice].find((item) => item.id === id)!, readAt } }))
@@ -24,7 +24,7 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals() })
 const tick = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0) }) }
 const render = async (node: ReactNode) => { await act(async () => root.render(node)); await tick() }
-const inbox = (role: Parameters<typeof staff>[0] = 'DOCTOR_IN_CHARGE') => <Notifications user={staff(role)} unread={unread} onOpenAppointment={openAppointment} />
+const inbox = (role: Parameters<typeof staff>[0] = 'DOCTOR_IN_CHARGE') => <Notifications user={staff(role)} unread={unread} />
 const buttons = () => Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
 const button = (text: string) => buttons().find((item) => item.textContent?.trim() === text)
 const click = async (text: string) => { await act(async () => button(text)!.click()); await tick() }
@@ -52,14 +52,14 @@ it('shows a contained loading state without an empty message, then server notifi
   expect(host.textContent).not.toContain('Loading notifications…')
   expect(notificationsApi.list).toHaveBeenCalledExactlyOnceWith({ page: 1, limit: 20 }, expect.any(AbortSignal))
   expect(items().map((item) => item.querySelector('h3')?.textContent)).toEqual(['New appointment', 'Staff briefing'])
-  expect(host.querySelector('.notification-summary')?.textContent).toBe('Unread1In this view2')
+  expect(host.querySelector('.notification-summary')?.textContent).toBe('Unread1')
 })
 it('marks unread and read items with text, not only colour, and keeps read items visible', async () => {
   await render(inbox())
   const [unreadItem, readItem] = items()
   expect(unreadItem!.className).toContain('is-unread'); expect(unreadItem!.querySelector('.notification-state')?.textContent).toBe('Unread')
   expect(readItem!.className).toContain('is-read'); expect(readItem!.querySelector('.notification-state')?.textContent).toBe('Read')
-  expect(readItem!.textContent).toContain('Staff broadcast'); expect(unreadItem!.textContent).toContain('Linked appointment')
+  expect(readItem!.textContent).toContain('Staff broadcast'); expect(unreadItem!.textContent).toContain('Past appointment')
   const open = unreadItem!.querySelector('button')!, [tags, time] = open.getAttribute('aria-describedby')!.split(' ')
   expect(document.getElementById(tags!)?.textContent).toContain('Unread')
   expect(document.getElementById(time!)?.getAttribute('dateTime')).toBe(appointmentNotice.createdAt)
@@ -100,7 +100,7 @@ it('treats a type-filtered empty unread view as a filter match, not an empty inb
 it('shows a safe retryable list error with the support reference only', async () => {
   vi.mocked(notificationsApi.list).mockRejectedValueOnce(new ApiError(503, 'pool exhausted at db-host:5432', 'SERVICE_UNAVAILABLE', 'req-list-1'))
   await render(inbox())
-  expect(host.querySelector('[role="alert"]')?.textContent).toBe('Unable to contact the server. Please try again.Support reference: req-list-1')
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe('Medicare could not complete this just now. Please try again in a moment.Support reference: req-list-1')
   expect(host.textContent).not.toContain('db-host'); expect(host.textContent).not.toMatch(/caught up/)
   await click('Try again'); expect(notificationsApi.list).toHaveBeenCalledTimes(2); expect(items()).toHaveLength(2)
 })
@@ -161,13 +161,15 @@ it('renders markup-like legacy content as inert text', async () => {
 it('shows an unsupported target normally without inventing navigation', async () => {
   const future: InboxNotification = { ...appointmentNotice, readAt, target: { type: 'STAFF_ACCOUNT', id: 'unsupported' } }
   vi.mocked(notificationsApi.list).mockResolvedValue(inboxPage([future])); vi.mocked(notificationsApi.get).mockResolvedValue({ notification: future })
-  await render(inbox()); expect(items()[0]!.textContent).not.toContain('Linked appointment')
+  await render(inbox()); expect(items()[0]!.textContent).not.toContain('Past appointment')
   await click('New appointment'); expect(dialog()!.textContent).toContain('An appointment has been assigned to you.')
-  expect(button('View appointment')).toBeUndefined(); expect(openAppointment).not.toHaveBeenCalled()
+  expect(button('View appointment')).toBeUndefined(); expect(dialog()!.textContent).not.toContain('Appointments are no longer used')
 })
-it('hands an appointment target to the existing appointment screen and closes the detail', async () => {
-  await render(inbox()); await click('New appointment'); await click('View appointment')
-  expect(openAppointment).toHaveBeenCalledExactlyOnceWith(appointmentNotice.target!.id); expect(dialog()).toBeNull()
+it('explains a past appointment notice instead of offering to open a retired appointment', async () => {
+  await render(inbox()); await click('New appointment')
+  expect(dialog()!.textContent).toContain('This notice was about an appointment. Appointments are no longer used, so there is nothing to open.')
+  expect(button('View appointment')).toBeUndefined()
+  expect(Array.from(dialog()!.querySelectorAll('.modal-footer button')).map((item) => item.textContent)).toEqual(['Close'])
 })
 it('marks all as read once, keeps the content and reloads page one from the server', async () => {
   vi.mocked(notificationsApi.list).mockResolvedValueOnce(inboxPage([appointmentNotice, broadcastNotice], 1, 30)).mockResolvedValueOnce(inboxPage([appointmentNotice, broadcastNotice], 2, 30))
@@ -243,7 +245,7 @@ it('sends an ALL audience and reports the server recipient count', async () => {
   expect(dialog()).toBeNull(); expect(host.querySelector('.notification-notice')?.textContent).toBe('Broadcast sent to 14 active staff members.')
   expect(notificationsApi.list).toHaveBeenCalledTimes(2); expect(unread.refresh).toHaveBeenCalledOnce()
 })
-it.each([['RECORDS_OFFICER', 'Records Officers'], ['DOCTOR_IN_CHARGE', 'Doctors in Charge'], ['ADMIN', 'Administrators']] as const)('sends the exact %s role enum', async (role, label) => {
+it.each([['RECORDS_OFFICER', 'Records Officers'], ['DOCTOR_IN_CHARGE', 'Medical Officers'], ['ADMIN', 'Administrators']] as const)('sends the exact %s role enum', async (role, label) => {
   vi.mocked(notificationsApi.broadcast).mockResolvedValueOnce({ notification: broadcastNotice, recipientCount: 1 })
   await compose(); await act(async () => host.querySelector<HTMLInputElement>('input[value="ROLE"]')!.click())
   await fill('broadcastTitle', 'Rota'); await fill('broadcastMessage', 'Rota changes.'); await submit()

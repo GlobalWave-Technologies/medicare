@@ -1,17 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BackendRole } from '../../api/auth'
 import { ApiError, authErrorMessage } from '../../api/client'
-import type { AppointmentSummary } from '../../api/reports'
-import { statusLabels } from '../appointments/appointment-utils'
-
-export type ReportKind = 'patients' | 'appointments' | 'clinical'
-// Mirrors the server permissions: operational reports for Admin and Records, personal clinical activity for doctors.
-export const reportKinds = (role: BackendRole): ReportKind[] => role === 'DOCTOR_IN_CHARGE' ? ['clinical'] : ['patients', 'appointments']
-export const reportTitles: Record<ReportKind, string> = { patients: 'Patient activity', appointments: 'Appointment activity', clinical: 'My clinical activity' }
+export type ReportKind = 'patients' | 'admissions'
+// Mirrors the server permissions: operational reports for Admin and Records Officers only.
+export const reportKinds = (role: BackendRole): ReportKind[] => role === 'DOCTOR_IN_CHARGE' ? [] : ['patients', 'admissions']
+export const reportTitles: Record<ReportKind, string> = { patients: 'Patient registrations', admissions: 'Admissions and discharges' }
 
 export const formatCount = (value: number) => value.toLocaleString()
-// Rates arrive as percentages rounded by the server; they are displayed, never recomputed.
-export const formatRate = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
 export const plural = (value: number, one: string, many = `${one}s`) => `${formatCount(value)} ${value === 1 ? one : many}`
 export function generatedLabel(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
@@ -27,16 +22,6 @@ export function labelIndexes(count: number, limit = 4) {
   if (count <= limit) return Array.from({ length: count }, (_, index) => index)
   return [...new Set(Array.from({ length: limit }, (_, index) => Math.round(index * (count - 1) / (limit - 1))))]
 }
-
-export type StatusKey = Exclude<keyof AppointmentSummary, 'totalAppointments' | 'cancellationRate' | 'noShowRate'>
-export const appointmentStatuses: { key: StatusKey; label: string; tone: string }[] = [
-  { key: 'scheduled', label: statusLabels.SCHEDULED, tone: 'scheduled' },
-  { key: 'confirmed', label: statusLabels.CONFIRMED, tone: 'confirmed' },
-  { key: 'checkedIn', label: statusLabels.CHECKED_IN, tone: 'checked_in' },
-  { key: 'completed', label: statusLabels.COMPLETED, tone: 'completed' },
-  { key: 'noShow', label: statusLabels.NO_SHOW, tone: 'no_show' },
-  { key: 'cancelled', label: statusLabels.CANCELLED, tone: 'cancelled' },
-]
 
 const errors: Record<string, string> = {
   INVALID_REPORT_RANGE: 'The reporting period wasn’t accepted. Choose a start date before the end date.',

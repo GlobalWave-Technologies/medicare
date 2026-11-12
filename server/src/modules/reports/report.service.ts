@@ -1,11 +1,11 @@
 import { Prisma, type PrismaClient, type StaffRole } from '../../generated/prisma/client.js'
 import { assertCurrentActor } from '../auth/security.transaction.js'
-import type { AuthContext, AuditContext } from '../auth/auth.context.js'
+import type { AuthContext } from '../auth/auth.context.js'
 import { assertPermission, type Permission } from '../../shared/authorization/permissions.js'
-import { appendAuditEvent } from '../../shared/audit/audit.js'
 import { rangeDto } from './report.dto.js'
-import { resolveReportRange, type ReportQuery } from './report.validation.js'
-import { activeStaffSnapshot, appointmentActivity, clinicalActivity, ownUnreadNotifications, patientActivity, patientSnapshot, registrationsCount, upcomingAppointments } from './report.queries.js'
+import { DAY_MS, resolveReportRange, type ReportQuery } from './report.validation.js'
+import { admissionActivity, authoredDrafts, currentAdmissions, ownUnreadNotifications, patientActivity, patientSnapshot } from './report.queries.js'
+import { staffPresenceCounts } from '../staff-activity/activity.service.js'
 
 const dashboardPermission = { ADMIN: 'DASHBOARD_VIEW_ADMIN', RECORDS_OFFICER: 'DASHBOARD_VIEW_RECORDS',
   DOCTOR_IN_CHARGE: 'DASHBOARD_VIEW_CLINICAL' } as const satisfies Record<StaffRole, Permission>
@@ -18,24 +18,25 @@ function reportTransaction<T>(db: PrismaClient, auth: AuthContext,
     return operation(tx, await assertCurrentActor(tx, auth))
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10000 })
 }
+// Every role sees aggregate counts only: patients admitted now, today's admissions and discharges,
+// and the daily admission/discharge series for the chart (hospital-wide). Admin and Records also
+// see patient totals; a Medical Officer sees their own unfinished clinical records; Admin also sees
+// how many staff are active now and signed in today (counts only).
 export function getDashboardForPrincipal(db: PrismaClient, auth: AuthContext, query: { from?: string; to?: string }) {
   return reportTransaction(db, auth, async (tx, role) => {
     assertPermission(role, dashboardPermission[role])
     const now = new Date(), range = resolveReportRange(query, true, now)
-    const common = { role, generatedAt: now.toISOString(), range: rangeDto(range) }
-    const clinicianId = role === 'DOCTOR_IN_CHARGE' ? auth.principal.id : undefined
-    const appointments = (await appointmentActivity(tx, range, clinicianId)).summary
-    const snapshot = { upcomingAppointments: await upcomingAppointments(tx, now, clinicianId),
-      unreadNotifications: await ownUnreadNotifications(tx, auth.principal.id) }
-    if (role === 'DOCTOR_IN_CHARGE') {
-      const clinical = await clinicalActivity(tx, range, auth.principal.id)
-      return { ...common, snapshot: { ...snapshot, currentAuthoredDrafts: clinical.currentAuthoredDrafts },
-        period: { appointments, clinical: clinical.summary } }
-    }
-    const patients = await patientSnapshot(tx), patientsRegistered = await registrationsCount(tx, range)
-    if (role === 'ADMIN') return { ...common,
-      snapshot: { ...snapshot, ...patients, activeStaff: await activeStaffSnapshot(tx) }, period: { appointments, patientsRegistered } }
-    return { ...common, snapshot: { ...snapshot, ...patients }, period: { appointments, patientsRegistered } }
+    const midnight = new Date(now); midnight.setUTCHours(0, 0, 0, 0)
+    const today = (await admissionActivity(tx, { from: midnight, to: new Date(midnight.getTime() + DAY_MS), bucket: 'day' })).summary
+    const activity = await admissionActivity(tx, range)
+    const common = { role, generatedAt: now.toISOString(), range: rangeDto(range),
+      today: { admissions: today.admissionsInRange, discharges: today.dischargesInRange },
+      activity: { admissions: activity.summary.admissionsInRange, discharges: activity.summary.dischargesInRange, series: activity.series } }
+    const snapshot = { currentAdmissions: await currentAdmissions(tx), unreadNotifications: await ownUnreadNotifications(tx, auth.principal.id) }
+    if (role === 'DOCTOR_IN_CHARGE') return { ...common, snapshot: { ...snapshot, currentAuthoredDrafts: await authoredDrafts(tx, auth.principal.id) } }
+    const patients = await patientSnapshot(tx)
+    if (role === 'ADMIN') return { ...common, snapshot: { ...snapshot, ...patients, ...await staffPresenceCounts(tx, now) } }
+    return { ...common, snapshot: { ...snapshot, ...patients } }
   })
 }
 export function getPatientReport(db: PrismaClient, auth: AuthContext, query: ReportQuery) {
@@ -46,20 +47,11 @@ export function getPatientReport(db: PrismaClient, auth: AuthContext, query: Rep
       summary: { registrationsInRange: activity.registrationsInRange }, series: activity.series }
   })
 }
-export function getAppointmentReport(db: PrismaClient, auth: AuthContext, query: ReportQuery) {
+export function getAdmissionReport(db: PrismaClient, auth: AuthContext, query: ReportQuery) {
   return reportTransaction(db, auth, async (tx, role) => {
     assertPermission(role, 'REPORT_OPERATIONAL_VIEW')
-    const now = new Date(), range = resolveReportRange(query, false, now), activity = await appointmentActivity(tx, range)
-    return { generatedAt: now.toISOString(), range: rangeDto(range), summary: activity.summary, series: activity.series }
-  })
-}
-export function getClinicalActivityReport(db: PrismaClient, auth: AuthContext, context: AuditContext, query: ReportQuery) {
-  return reportTransaction(db, auth, async (tx, role) => {
-    assertPermission(role, 'REPORT_CLINICAL_AGGREGATE_VIEW')
-    const now = new Date(), range = resolveReportRange(query, false, now), activity = await clinicalActivity(tx, range, auth.principal.id)
-    await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'CLINICAL_REPORT_VIEWED',
-      entityType: 'STAFF_USER', entityId: auth.principal.id, metadata: { source: 'API' } })
-    return { generatedAt: now.toISOString(), range: rangeDto(range), snapshot: { currentAuthoredDrafts: activity.currentAuthoredDrafts },
+    const now = new Date(), range = resolveReportRange(query, false, now), activity = await admissionActivity(tx, range)
+    return { generatedAt: now.toISOString(), range: rangeDto(range), snapshot: { currentAdmissions: await currentAdmissions(tx) },
       summary: activity.summary, series: activity.series }
   })
 }

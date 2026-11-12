@@ -4,27 +4,25 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { BackendRole, StaffUser } from '../src/api/auth'
 import { ApiError } from '../src/api/client'
-import { appointmentsApi } from '../src/api/appointments'
+import { admissionsApi } from '../src/api/admissions'
 import { encountersApi } from '../src/api/encounters'
 import { notificationsApi } from '../src/api/notifications'
 import { patientsApi } from '../src/api/patients'
 import { staffApi } from '../src/api/staff'
 import { App } from '../src/app/App'
-import { clinician, page } from './appointment-fixtures'
 import { officer, signedIn, staffPage } from './staff-fixtures'
 
 const identity = vi.hoisted(() => ({ role: 'ADMIN' as BackendRole }))
 vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({ ...signedIn, role: identity.role }) }))
 let host: HTMLDivElement, root: Root
-const empty = { items: [], pagination: { ...page.pagination, total: 0, totalPages: 0 } }
+const empty = { items: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } }
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-05T10:00:00Z')); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   vi.spyOn(notificationsApi, 'unreadCount').mockResolvedValue({ count: 0 })
   vi.spyOn(notificationsApi, 'list').mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } })
   vi.spyOn(patientsApi, 'list').mockResolvedValue(empty)
-  vi.spyOn(appointmentsApi, 'list').mockResolvedValue(empty)
-  vi.spyOn(appointmentsApi, 'clinicians').mockResolvedValue({ clinicians: [clinician] })
+  vi.spyOn(admissionsApi, 'list').mockResolvedValue(empty)
   vi.spyOn(encountersApi, 'list').mockResolvedValue(empty)
   vi.spyOn(staffApi, 'list').mockResolvedValue(staffPage([{ ...signedIn }, officer]))
   vi.spyOn(staffApi, 'get').mockResolvedValue({ user: officer })
@@ -45,11 +43,10 @@ it('shows Staff & Access to administrators with the real workspace', async () =>
   expect(host.querySelector('h2')?.textContent).toBe('Staff directory'); expect(host.textContent).not.toMatch(/not available|NOT YET AVAILABLE/)
   expect(staffApi.list).toHaveBeenCalled()
 })
-it('opens Staff & Access from the administrator overview card', async () => {
+it('opens Staff & Access from the administrator overview in one step', async () => {
   await start('ADMIN')
-  const card = Array.from(host.querySelectorAll<HTMLButtonElement>('.workflow-card')).find((item) => item.textContent?.includes('Staff & Access'))!
-  expect(card.textContent).toContain('Add staff accounts, change roles and manage who can sign in.')
-  await act(async () => card.click()); await tick()
+  expect(host.querySelector('h1')?.textContent).toBe('Overview')
+  await nav('Staff & Access')
   expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('Staff & Access')
 })
 it.each(['RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const)('hides Staff from %s and never requests staff data in any of their views', async (role) => {

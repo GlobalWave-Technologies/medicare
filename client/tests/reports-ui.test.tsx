@@ -7,7 +7,7 @@ import { ApiError } from '../src/api/client'
 import { reportsApi, type PatientReport } from '../src/api/reports'
 import { Reports } from '../src/features/reports/Reports'
 import { TrendChart } from '../src/features/reports/TrendChart'
-import { appointmentReport, clinicalReport, emptyAppointmentReport, emptyClinicalReport, emptyPatientReport, patientReport, range } from './report-fixtures'
+import { admissionReport, emptyAdmissionReport, emptyPatientReport, patientReport, range } from './report-fixtures'
 
 let host: HTMLDivElement, root: Root
 const defaultQuery = { from: '2026-10-07T00:00:00.000Z', to: '2026-11-06T00:00:00.000Z', bucket: 'day' }
@@ -15,8 +15,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-05T09:30:00Z')); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
   vi.spyOn(reportsApi, 'patients').mockImplementation(async () => patientReport)
-  vi.spyOn(reportsApi, 'appointments').mockImplementation(async () => appointmentReport)
-  vi.spyOn(reportsApi, 'clinicalActivity').mockImplementation(async () => clinicalReport)
+  vi.spyOn(reportsApi, 'admissions').mockImplementation(async () => admissionReport)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals() })
 const tick = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0) }) }
@@ -40,26 +39,24 @@ const tabs = () => Array.from(host.querySelectorAll<HTMLButtonElement>('[role="t
 const utc = (value: string, options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }) => new Intl.DateTimeFormat(undefined, { timeZone: 'UTC', ...options }).format(Date.parse(`${value}T00:00:00Z`))
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((yes) => { resolve = yes }); return { promise, resolve } }
 
-it.each(['ADMIN', 'RECORDS_OFFICER'] as const)('gives %s the patient and appointment reports as tabs, defaulting to the last 30 UTC days by day', async (role) => {
+it.each(['ADMIN', 'RECORDS_OFFICER'] as const)('gives %s the registration and admission reports as tabs, defaulting to the last 30 UTC days by day', async (role) => {
   await render(role)
-  expect(tabs().map((tab) => [tab.textContent, tab.getAttribute('aria-selected')])).toEqual([['Patient activity', 'true'], ['Appointment activity', 'false']])
+  expect(tabs().map((tab) => [tab.textContent, tab.getAttribute('aria-selected')])).toEqual([['Patient registrations', 'true'], ['Admissions and discharges', 'false']])
   expect(host.querySelector('[role="tablist"]')?.getAttribute('aria-label')).toBe('Report type')
   expect(host.querySelector('[role="tabpanel"]')?.getAttribute('aria-labelledby')).toBe('report-tab-patients')
   expect(last(reportsApi.patients)).toEqual(defaultQuery); expect(vi.mocked(reportsApi.patients).mock.calls[0]![1]).toBeInstanceOf(AbortSignal)
-  expect(reportsApi.clinicalActivity).not.toHaveBeenCalled(); expect(host.textContent).not.toContain('My clinical activity')
+  expect(reportsApi.admissions).not.toHaveBeenCalled(); expect(host.textContent).not.toMatch(/ppointment|My clinical activity/)
 })
-it('gives doctors only their own clinical activity report, with no tabs and no organization reports', async () => {
+it('gives Medical Officers no report and requests nothing (their workload is on the Overview)', async () => {
   await render('DOCTOR_IN_CHARGE')
-  expect(tabs()).toHaveLength(0); expect(host.querySelector('#report-title')?.textContent).toBe('My clinical activity')
-  expect(last(reportsApi.clinicalActivity)).toEqual(defaultQuery)
-  expect(reportsApi.patients).not.toHaveBeenCalled(); expect(reportsApi.appointments).not.toHaveBeenCalled()
-  expect(host.textContent).not.toMatch(/Patient activity|Appointment activity|Active patients|whole hospital/)
+  expect(tabs()).toHaveLength(0); expect(host.textContent).toContain('Reports are available to administrators and records officers.')
+  expect(reportsApi.patients).not.toHaveBeenCalled(); expect(reportsApi.admissions).not.toHaveBeenCalled()
 })
 it('switches report type with the keyboard and keeps the applied period', async () => {
   await render('ADMIN')
   await act(async () => tabs()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))); await tick()
   expect(tabs()[1]!.getAttribute('aria-selected')).toBe('true'); expect(document.activeElement).toBe(tabs()[1]); expect(tabs()[1]!.tabIndex).toBe(0); expect(tabs()[0]!.tabIndex).toBe(-1)
-  expect(last(reportsApi.appointments)).toEqual(defaultQuery)
+  expect(last(reportsApi.admissions)).toEqual(defaultQuery)
   await act(async () => tabs()[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))); await tick()
   expect(tabs()[0]!.getAttribute('aria-selected')).toBe('true')
 })
@@ -94,39 +91,31 @@ it('states that no patients were registered instead of drawing an empty chart', 
   expect(host.querySelector('.trend-chart')).toBeNull(); expect(cards()).toEqual([['Active patients', '128'], ['Archived patients', '6'], ['Patients registered', '0']])
   expect(host.querySelector('[role="alert"]')).toBeNull()
 })
-it('shows the appointment total, every status and the server rates', async () => {
+it('shows current admissions separately from admissions and discharges in the period, charted together', async () => {
   await render('ADMIN'); await press(tabs()[1])
-  expect(cards()).toEqual([['Appointments', '40'], ['Completed', '10'], ['Cancellation rate', '25%'], ['No-show rate', '0%']])
-  expect(Array.from(host.querySelectorAll('.status-breakdown li')).map((row) => row.textContent)).toEqual(['Scheduled:10', 'Confirmed:10', 'Checked in:0', 'Completed:10', 'No-show:0', 'Cancelled:10'])
-  expect(host.textContent).toContain('counted by their scheduled start in this period, using each appointment’s current status')
+  expect(cards()).toEqual([['Currently admitted', '9'], ['Admissions', '30'], ['Discharges', '20']])
+  expect(host.querySelector('[aria-labelledby="admissions-period"]')?.textContent).toContain('Admissions are counted by admission time and discharges by discharge time')
   const chart = host.querySelector('.trend-chart')!
-  expect(chart.querySelector('h3')?.textContent).toBe('Appointments per day')
-  expect(Array.from(chart.querySelectorAll('thead th')).map((th) => th.textContent)).toEqual(['Date', 'Total', 'Scheduled', 'Confirmed', 'Checked in', 'Completed', 'No-show', 'Cancelled'])
-  expect(Array.from(chart.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')).map((td) => td.textContent)).toEqual(['4', '1', '1', '0', '1', '0', '1'])
+  expect(chart.querySelector('h3')?.textContent).toBe('Admissions and discharges per day')
+  expect(Array.from(chart.querySelectorAll('.chart-legend li')).map((item) => item.textContent)).toEqual(['Admissions', 'Discharges'])
+  expect(chart.querySelectorAll('rect')).toHaveLength(60)
+  expect(Array.from(chart.querySelectorAll('thead th')).map((th) => th.textContent)).toEqual(['Date', 'Admissions', 'Discharges'])
+  expect(host.textContent).not.toMatch(/roomNumber|dischargeNotes|Leak/)
 })
-it('treats a period with no appointments as a valid empty report', async () => {
-  vi.mocked(reportsApi.appointments).mockImplementation(async () => emptyAppointmentReport)
+it('treats a period with no admissions or discharges as a valid empty report', async () => {
+  vi.mocked(reportsApi.admissions).mockImplementation(async () => emptyAdmissionReport)
   await render('ADMIN'); await press(tabs()[1])
-  expect(host.querySelector('.report-empty-note')?.textContent).toBe('No appointment activity was recorded in this period.')
-  expect(cards().map(([, value]) => value)).toEqual(['0', '0', '0%', '0%']); expect(host.querySelector('.trend-chart')).toBeNull()
+  expect(host.querySelector('.report-empty')?.textContent).toBe('No admissions or discharges were recorded in this period.')
+  expect(cards().map(([, value]) => value)).toEqual(['9', '0', '0']); expect(host.querySelector('.trend-chart')).toBeNull()
 })
-it('shows only the doctor’s own drafts, encounters, finalizations and amendments with no clinical text', async () => {
-  await render('DOCTOR_IN_CHARGE')
-  expect(cards()).toEqual([['My open drafts', '3'], ['Encounters documented', '9'], ['Encounters finalized', '6'], ['Amendments added', '2']])
-  expect(host.querySelector('.report-scope')?.textContent).toBe('Only your own work: encounters you authored and amendments you added. No clinical text, diagnoses or patient details are included. Opening this report is recorded in the audit log.')
+it('groups admissions by week with the UTC week explained', async () => {
+  vi.mocked(reportsApi.admissions).mockImplementation(async () => ({ ...admissionReport, range: range('2026-10-05T00:00:00.000Z', '2026-11-09T00:00:00.000Z', 'week'),
+    series: ['2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26', '2026-11-02'].map((period, index) => ({ period, admissions: index, discharges: 1 })), summary: { admissionsInRange: 10, dischargesInRange: 5 } }))
+  await render('RECORDS_OFFICER'); await press(tabs()[1])
   const chart = host.querySelector('.trend-chart')!
-  expect(Array.from(chart.querySelectorAll('.chart-legend li')).map((item) => item.textContent)).toEqual(['Encounters documented', 'Encounters finalized', 'Amendments added'])
-  expect(chart.querySelectorAll('rect')).toHaveLength(15)
-  expect(Array.from(chart.querySelectorAll('.chart-x span')).map((span) => [span.textContent, span.classList.contains('is-optional')])).toEqual(
-    ['2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26', '2026-11-02'].map((day, index) => [utc(day, { day: 'numeric', month: 'short' }), index % 2 === 1]))
+  expect(chart.querySelectorAll('rect')).toHaveLength(10)
   expect(chart.querySelector('tbody th')?.textContent).toBe(`Week of ${utc('2026-10-05')}`)
   expect(chart.textContent).toContain('Weeks start on Monday (UTC). The first and last weeks can be partial.')
-  expect(host.textContent).not.toMatch(/REVIEWED|Reviewed|VOIDED|clinicalNotes|Leak/)
-})
-it('states when a doctor has no clinical activity in the period', async () => {
-  vi.mocked(reportsApi.clinicalActivity).mockImplementation(async () => emptyClinicalReport)
-  await render('DOCTOR_IN_CHARGE')
-  expect(host.querySelector('.report-empty')?.textContent).toBe('No clinical activity was recorded in this period.'); expect(host.querySelector('.trend-chart')).toBeNull()
 })
 it.each([['last7', '2026-10-30T00:00:00.000Z'], ['last90', '2026-08-08T00:00:00.000Z'], ['last30', '2026-10-07T00:00:00.000Z']] as const)('applies the %s preset as a UTC range only on Apply', async (preset, from) => {
   await render('ADMIN')
@@ -171,29 +160,29 @@ it('labels week and month periods by their UTC start date', async () => {
   expect(host.querySelector('.trend-chart')?.textContent).toContain('Months are UTC calendar months. The first and last months can be partial.')
 })
 it('ignores and aborts a slower response for an older selection', async () => {
-  const older = deferred<PatientReport>(), newer = deferred<typeof appointmentReport>()
-  vi.mocked(reportsApi.patients).mockReturnValueOnce(older.promise); vi.mocked(reportsApi.appointments).mockReturnValueOnce(newer.promise)
+  const older = deferred<PatientReport>(), newer = deferred<typeof admissionReport>()
+  vi.mocked(reportsApi.patients).mockReturnValueOnce(older.promise); vi.mocked(reportsApi.admissions).mockReturnValueOnce(newer.promise)
   await mount(<Reports role="ADMIN" />); await press(tabs()[1])
   expect((vi.mocked(reportsApi.patients).mock.calls[0]![1] as AbortSignal).aborted).toBe(true)
-  newer.resolve(appointmentReport); await tick(); older.resolve(patientReport); await tick()
-  expect(cards()[0]).toEqual(['Appointments', '40']); expect(host.textContent).not.toContain('Active patients')
+  newer.resolve(admissionReport); await tick(); older.resolve(patientReport); await tick()
+  expect(cards()[0]).toEqual(['Currently admitted', '9']); expect(host.textContent).not.toContain('Active patients')
 })
 it('keeps the filters usable while a report loads', async () => {
   const pending = deferred<PatientReport>(); vi.mocked(reportsApi.patients).mockReturnValueOnce(pending.promise)
   await mount(<Reports role="ADMIN" />)
-  expect(host.querySelector('[role="status"]')?.textContent).toBe('Loading patient activity…'); expect(host.querySelector('.report-skeleton')?.getAttribute('aria-hidden')).toBe('true')
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('Loading patient registrations…'); expect(host.querySelector('.report-skeleton')?.getAttribute('aria-hidden')).toBe('true')
   expect(field<HTMLSelectElement>('reportPeriod').disabled).toBe(false); expect(button('Apply')!.disabled).toBe(false)
   pending.resolve(patientReport); await tick(); expect(host.querySelector('.report-skeleton')).toBeNull()
 })
 it('shows a safe error with its reference and retries on request', async () => {
-  vi.mocked(reportsApi.appointments).mockRejectedValueOnce(new ApiError(500, 'relation "Appointment" does not exist', 'INTERNAL_ERROR', 'req-rep-500'))
+  vi.mocked(reportsApi.admissions).mockRejectedValueOnce(new ApiError(500, 'relation "Admission" does not exist', 'INTERNAL_ERROR', 'req-rep-500'))
   await render('ADMIN'); await press(tabs()[1])
   expect(host.querySelector('[role="alert"]')?.textContent).toBe('The report couldn’t be loaded. Try again.Support reference: req-rep-500'); expect(host.textContent).not.toContain('relation')
-  await click('Try again'); expect(cards()[0]).toEqual(['Appointments', '40'])
+  await click('Try again'); expect(cards()[0]).toEqual(['Currently admitted', '9'])
 })
 it('says the report is not available to this account on 403, without a retry', async () => {
-  vi.mocked(reportsApi.clinicalActivity).mockRejectedValue(new ApiError(403, 'Permission denied', 'FORBIDDEN', 'req-403'))
-  await render('DOCTOR_IN_CHARGE')
+  vi.mocked(reportsApi.patients).mockRejectedValue(new ApiError(403, 'Permission denied', 'FORBIDDEN', 'req-403'))
+  await render('RECORDS_OFFICER')
   expect(host.querySelector('[role="alert"]')?.textContent).toBe('You don’t have access to this report.Support reference: req-403'); expect(button('Try again')).toBeUndefined()
 })
 it('explains a server range refusal', async () => {
@@ -231,7 +220,7 @@ it('draws a chart of zeros or a single period without NaN or undefined labels', 
 it('offers no export, print, download or clinical breakdown controls', async () => {
   await render('ADMIN')
   expect(host.textContent).not.toMatch(/Export|Download|Print|CSV|PDF|Excel|diagnos|complaint|Top /i)
-  await render('DOCTOR_IN_CHARGE'); expect(host.textContent).not.toMatch(/Export|Download|Print|CSV|PDF|Excel|Top /)
+  await press(tabs()[1]); expect(host.textContent).not.toMatch(/Export|Download|Print|CSV|PDF|Excel|diagnos|Top /i)
 })
 it('never writes report data to browser storage', async () => {
   const setItem = vi.spyOn(Storage.prototype, 'setItem')

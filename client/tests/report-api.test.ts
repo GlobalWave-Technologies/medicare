@@ -6,7 +6,7 @@ import { dashboardApi } from '../src/api/dashboard'
 import { reportsApi } from '../src/api/reports'
 import { resetApiSession } from '../src/api/client'
 import { createAuthStore } from '../src/features/auth/auth-store'
-import { adminDashboard, appointmentReport, clinicalReport, doctorDashboard, patientReport, recordsDashboard } from './report-fixtures'
+import { adminDashboard, admissionReport, doctorDashboard, patientReport, recordsDashboard } from './report-fixtures'
 
 const fetcher = vi.fn<typeof fetch>()
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }))
@@ -34,8 +34,7 @@ it('sends only a paired period to the dashboard, never a role, scope, staff ID o
 })
 it.each([
   ['patients', '/api/v1/reports/patients', () => reportsApi.patients({ from, to, bucket: 'week' }), patientReport],
-  ['appointments', '/api/v1/reports/appointments', () => reportsApi.appointments({ from, to, bucket: 'month' }), appointmentReport],
-  ['clinical activity', '/api/v1/reports/clinical-activity', () => reportsApi.clinicalActivity({ from, to, bucket: 'day' }), clinicalReport],
+  ['admissions', '/api/v1/reports/admissions', () => reportsApi.admissions({ from, to, bucket: 'month' }), admissionReport],
 ] as const)('reads the %s report with only from, to and bucket', async (_name, path, run, body) => {
   fetcher.mockResolvedValueOnce(ok(body))
   expect(await run()).toEqual(body)
@@ -49,32 +48,39 @@ it('URL-encodes offset timestamps, including a + offset', async () => {
   expect(call(0).url).toBe('/api/v1/reports/patients?from=2026-10-01T00%3A00%3A00%2B01%3A00&to=2026-10-08T00%3A00%3A00%2B01%3A00&bucket=day')
 })
 it('lets the server default a report when no period or bucket is given, and never sends half a range', async () => {
-  fetcher.mockImplementation(async () => ok(appointmentReport))
-  await reportsApi.appointments(); await reportsApi.appointments({ from, bucket: 'week' })
-  expect(call(0).url).toBe('/api/v1/reports/appointments'); expect(call(1).url).toBe('/api/v1/reports/appointments?bucket=week')
+  fetcher.mockImplementation(async () => ok(admissionReport))
+  await reportsApi.admissions(); await reportsApi.admissions({ from, bucket: 'week' })
+  expect(call(0).url).toBe('/api/v1/reports/admissions'); expect(call(1).url).toBe('/api/v1/reports/admissions?bucket=week')
 })
 it('forwards the abort signal to every report', async () => {
-  fetcher.mockResolvedValueOnce(ok(patientReport)).mockResolvedValueOnce(ok(appointmentReport)).mockResolvedValueOnce(ok(clinicalReport))
+  fetcher.mockResolvedValueOnce(ok(patientReport)).mockResolvedValueOnce(ok(admissionReport))
   const signal = new AbortController().signal
-  await reportsApi.patients({}, signal); await reportsApi.appointments({}, signal); await reportsApi.clinicalActivity({}, signal)
-  expect([0, 1, 2].map((index) => call(index).init?.signal)).toEqual([signal, signal, signal])
+  await reportsApi.patients({}, signal); await reportsApi.admissions({}, signal)
+  expect([0, 1].map((index) => call(index).init?.signal)).toEqual([signal, signal])
 })
 it.each(['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const)('keeps only the documented %s dashboard fields', async (role) => {
   const base = role === 'ADMIN' ? adminDashboard : role === 'RECORDS_OFFICER' ? recordsDashboard : doctorDashboard
-  fetcher.mockResolvedValueOnce(ok({ ...base, patients: [{ firstName: 'Leak' }], diagnoses: ['Leak'], snapshot: { ...base.snapshot, activePatients: 999, activeStaff: { total: 9, admins: 9, recordsOfficers: 0, doctors: 0, emails: ['x'] } },
-    period: { ...base.period, clinical: { encountersInRange: 5, finalizedEncountersInRange: 5, amendmentsInRange: 5, notes: 'Leak' } } }))
+  fetcher.mockResolvedValueOnce(ok({ ...base, patients: [{ firstName: 'Leak' }], diagnoses: ['Leak'], snapshot: { ...base.snapshot, activeStaff: { total: 9, emails: ['x'] } },
+    today: { ...base.today, names: ['Leak'] }, activity: { ...base.activity, clinical: { notes: 'Leak' }, series: base.activity.series.map((point) => ({ ...point, patient: 'Leak' })) } }))
   const result = await dashboardApi.get()
-  expect(JSON.stringify(result)).not.toMatch(/Leak|emails|diagnoses|patients"/)
+  expect(JSON.stringify(result)).not.toMatch(/Leak|emails|diagnoses|patients"|activeStaff|clinical/)
+  expect(Object.keys(result).sort()).toEqual(['activity', 'generatedAt', 'range', 'role', 'snapshot', 'today'])
   expect(Object.keys(result.snapshot).sort()).toEqual(Object.keys(base.snapshot).sort())
-  expect(Object.keys(result.period).sort()).toEqual(Object.keys(base.period).sort())
+  expect(result.activity).toEqual(base.activity)
 })
 it.each([
   ['an unknown role', { ...adminDashboard, role: 'SUPERUSER' }],
   ['a negative count', { ...adminDashboard, snapshot: { ...adminDashboard.snapshot, activePatients: -1 } }],
-  ['a fractional count', { ...recordsDashboard, period: { ...recordsDashboard.period, patientsRegistered: 1.5 } }],
-  ['a rate above 100', { ...adminDashboard, period: { ...adminDashboard.period, appointments: { ...adminDashboard.period.appointments, noShowRate: 140 } } }],
-  ['a missing staff snapshot', { ...adminDashboard, snapshot: { ...recordsDashboard.snapshot } }],
-  ['a missing draft count', { ...doctorDashboard, snapshot: { upcomingAppointments: 1, unreadNotifications: 0 } }],
+  ['a fractional count', { ...recordsDashboard, today: { ...recordsDashboard.today, admissions: 1.5 } }],
+  ['a missing discharge count', { ...adminDashboard, today: { admissions: 1 } }],
+  ['a missing chart series', { ...adminDashboard, activity: { admissions: 1, discharges: 1 } }],
+  ['a malformed chart day', { ...adminDashboard, activity: { ...adminDashboard.activity, series: [{ period: '5 Nov', admissions: 1, discharges: 0 }] } }],
+  ['a negative chart count', { ...adminDashboard, activity: { ...adminDashboard.activity, series: [{ period: '2026-11-05', admissions: -1, discharges: 0 }] } }],
+  ['an oversized chart series', { ...adminDashboard, activity: { ...adminDashboard.activity, series: Array.from({ length: 40 }, () => adminDashboard.activity.series[0]) } }],
+  ['a weekly chart', { ...adminDashboard, range: { ...adminDashboard.range, bucket: 'week' } }],
+  ['a missing current-admissions count', { ...recordsDashboard, snapshot: { unreadNotifications: 0, activePatients: 1, archivedPatients: 0 } }],
+  ['a missing patient total', { ...adminDashboard, snapshot: { currentAdmissions: 1, unreadNotifications: 0, archivedPatients: 0 } }],
+  ['a missing draft count', { ...doctorDashboard, snapshot: { currentAdmissions: 1, unreadNotifications: 0 } }],
   ['a non-UTC range', { ...adminDashboard, range: { ...adminDashboard.range, timezone: 'Europe/London' } }],
   ['a reversed range', { ...adminDashboard, range: { ...adminDashboard.range, from: adminDashboard.range.to, to: adminDashboard.range.from } }],
   ['a bad generatedAt', { ...adminDashboard, generatedAt: 'yesterday' }],
@@ -85,24 +91,28 @@ it.each([
 it.each([
   ['patients', () => reportsApi.patients(), { ...patientReport, series: [{ period: '1 Nov', registrations: 1 }] }],
   ['patients', () => reportsApi.patients(), { ...patientReport, series: 'none' }],
-  ['appointments', () => reportsApi.appointments(), { ...appointmentReport, summary: { ...appointmentReport.summary, noShow: undefined } }],
-  ['appointments', () => reportsApi.appointments(), { ...appointmentReport, range: { ...appointmentReport.range, bucket: 'quarter' } }],
-  ['clinical', () => reportsApi.clinicalActivity(), { ...clinicalReport, series: [{ period: '2026-11-02', encounters: 'two', finalized: 0, amendments: 0 }] }],
-  ['clinical', () => reportsApi.clinicalActivity(), { ...clinicalReport, snapshot: {} }],
+  ['admissions', () => reportsApi.admissions(), { ...admissionReport, summary: { ...admissionReport.summary, dischargesInRange: undefined } }],
+  ['admissions', () => reportsApi.admissions(), { ...admissionReport, range: { ...admissionReport.range, bucket: 'quarter' } }],
+  ['admissions', () => reportsApi.admissions(), { ...admissionReport, series: [{ period: '2026-11-02', admissions: 'two', discharges: 0 }] }],
+  ['admissions', () => reportsApi.admissions(), { ...admissionReport, snapshot: {} }],
 ] as const)('rejects a malformed %s report', async (_name, run, body) => {
   fetcher.mockResolvedValueOnce(ok(body))
   await expect(run()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
 })
-it('drops anything beyond the documented clinical aggregates', async () => {
-  fetcher.mockResolvedValueOnce(ok({ ...clinicalReport, encounters: [{ clinicalNotes: 'Leak' }], series: clinicalReport.series.map((row) => ({ ...row, diagnosis: 'Leak', authorId: 'other-doctor' })) }))
-  const result = await reportsApi.clinicalActivity()
-  expect(JSON.stringify(result)).not.toMatch(/Leak|authorId|other-doctor|clinicalNotes/)
-  expect(Object.keys(result.series[0]!).sort()).toEqual(['amendments', 'encounters', 'finalized', 'period'])
+it('drops anything beyond the documented admission aggregates', async () => {
+  fetcher.mockResolvedValueOnce(ok({ ...admissionReport, admissions: [{ roomNumber: 'Leak', dischargeNotes: 'Leak' }], series: admissionReport.series.map((row) => ({ ...row, patientId: 'Leak', roomNumber: 'Leak' })) }))
+  const result = await reportsApi.admissions()
+  expect(JSON.stringify(result)).not.toMatch(/Leak|patientId|roomNumber|dischargeNotes/)
+  expect(Object.keys(result.series[0]!).sort()).toEqual(['admissions', 'discharges', 'period'])
+  expect(Object.keys(result.summary).sort()).toEqual(['admissionsInRange', 'dischargesInRange'])
+})
+it('no longer offers appointment or personal clinical-activity reports', () => {
+  expect(Object.keys(reportsApi).sort()).toEqual(['admissions', 'patients'])
 })
 it('keeps the session on a forbidden report and invalidates it on 401', async () => {
   const store = createAuthStore()
   try {
-    fetcher.mockResolvedValueOnce(ok({ user: { id: 'doctor', staffNumber: 'STF-DOC', firstName: 'Dana', lastName: 'Doctor', email: 'dana@example.test', role: 'DOCTOR_IN_CHARGE', status: 'ACTIVE' } }))
+    fetcher.mockResolvedValueOnce(ok({ user: { id: 'doctor', staffNumber: 'STF-DOC', firstName: 'Dana', lastName: 'Doctor', email: 'dana@example.test', role: 'DOCTOR_IN_CHARGE', status: 'ACTIVE', mustChangePassword: false } }))
     await store.refreshUser()
     fetcher.mockResolvedValueOnce(fail(403, 'FORBIDDEN'))
     await expect(reportsApi.patients()).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN', requestId: 'req-report' })
@@ -116,7 +126,11 @@ it('keeps dashboard and report code read-only and free of storage, logging, mock
   const files = [resolve('src/api/dashboard.ts'), resolve('src/api/reports.ts'),
     ...['src/features/reports', 'src/features/dashboard'].flatMap((folder) => readdirSync(resolve(folder)).filter((name) => /\.tsx?$/.test(name)).map((name) => resolve(folder, name)))]
   const source = files.map((file) => readFileSync(file, 'utf8')).join('\n')
-  expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB|mocks\/|fetch\(|console\.|\bany\b|dangerouslySetInnerHTML|mutation\(|setInterval|EventSource|WebSocket/)
+  expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB|mocks\/|fetch\(|console\.|\bany\b|dangerouslySetInnerHTML|mutation\(|EventSource|WebSocket/)
+  // The only timer is the overview's one-minute refresh, which runs only while the page is visible.
+  const timers = files.filter((file) => /setInterval|setTimeout/.test(readFileSync(file, 'utf8')))
+  expect(timers).toHaveLength(1); expect(timers[0]!.endsWith('dashboard-utils.ts')).toBe(true)
+  expect(readFileSync(timers[0]!, 'utf8')).toMatch(/document\.visibilityState === 'visible'/)
   expect(source).not.toMatch(/encountersApi|patientsApi|appointmentsApi|notificationsApi|staffApi|\.diagnoses|\.complaints|clinicalNotes|chiefComplaint/)
   expect(source).not.toMatch(/params\.set\('(role|scope|staffId|clinicianId|authorId)'/)
 })

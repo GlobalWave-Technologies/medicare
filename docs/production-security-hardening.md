@@ -169,10 +169,11 @@ no membership in the owner role. The grant script refuses to run if any of these
 
 | Privilege | Tables |
 | --- | --- |
-| `SELECT` | Every application table |
-| `INSERT, UPDATE` | Staff, sessions, patients, appointments, encounters, notification recipients |
-| `INSERT` only | Audit events, amendments, notifications, retry records, complaints, diagnoses |
-| `DELETE` | Draft complaints and diagnoses, expired retry records, expired sessions |
+| `SELECT` | Every application table (appointments are read-only history since Phase 19A) |
+| `INSERT, UPDATE` | Staff, sessions, patients, admissions, admission room history, encounters, notification recipients, the medication catalog (no delete) |
+| `INSERT` only | Audit events, amendments, notifications, retry records, complaints, diagnoses, medication orders |
+| `DELETE` | Draft complaints, diagnoses and medication orders, expired retry records, expired sessions |
+| `USAGE` | The admission number sequence |
 | None | The migration history |
 
 **Database protections that apply whatever the privileges:**
@@ -209,8 +210,10 @@ application.
     hashes;
   - session tokens, CSRF values, `Idempotency-Key`, cookies and `Authorization`;
   - database URLs;
-  - patient demographics, clinical text, complaints, diagnoses, amendments, appointment reasons
-    and notes, and notification titles and bodies.
+  - patient demographics, clinical text, complaints, diagnoses, medication orders (including
+    strength, frequency, duration and instructions), amendments,
+    rooms, transfer notes, discharge notes, appointment reasons and notes, and notification titles
+    and bodies.
 - **Live scan:** after the hardening walkthrough, the API logs contained none of the synthetic
   passwords, session tokens, CSRF values, idempotency keys, clinical text, broadcast body, phone
   numbers or emails used.
@@ -253,8 +256,8 @@ application.
 1. **Rate limiting:** in-process only, single API instance.
 2. **Account recovery:** no self-service recovery, email reset or multi-factor authentication.
    Resets are administrator-mediated.
-3. **Retry protection:** clients that send no `Idempotency-Key` get none. Appointment booking,
-   edits and status changes rely on conflict checks instead.
+3. **Retry protection:** clients that send no `Idempotency-Key` get none. Edits, room changes,
+   discharges and status changes rely on conflict checks instead.
 4. **Browsers:** Safari and stock Firefox were not tested; the Firefox and WebKit engines were.
    Saved-password autofill in both themes and Windows high-contrast mode need a manual check on
    hospital devices.

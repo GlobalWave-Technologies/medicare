@@ -1,5 +1,5 @@
 
 
-export type Role = 'Admin' | 'Records Officer' | 'Doctor in Charge'
+export type Role = 'Admin' | 'Records Officer' | 'Medical Officer'
 
-export type View = 'Overview' | 'Patients' | 'Appointments' | 'Medical records' | 'Reports' | 'Notifications' | 'Staff'
+export type View = 'Overview' | 'Patients' | 'Medical records' | 'Reports' | 'Notifications' | 'Staff' | 'Activity' | 'Medicines'

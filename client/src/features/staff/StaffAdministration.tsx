@@ -7,23 +7,31 @@ import { AddStaffDialog } from './AddStaffDialog'
 import { StaffDetail } from './StaffDetail'
 import { StaffFeedback } from './StaffFeedback'
 import { StaffStatusBadge } from './StaffStatusBadge'
+import { When } from '../staff-activity/ActivityParts'
 import { useStaffList, useStaffTotals } from './useStaff'
 import { canAdministerStaff, initials, roleLabel, staffName, statusLabels } from './staff-utils'
 import './staff.css'
 
 const PAGE_SIZE = 20
 const summaryOrder: StaffStatus[] = ['ACTIVE', 'PENDING', 'SUSPENDED', 'DISABLED']
-type Props = { user: StaffUser; onSessionEnded: () => void }
+// Last activity, with the last sign-in under it; "Never signed in" for an account never used.
+function LastSeen({ member }: { member: StaffMember }) {
+  const now = new Date().toISOString()
+  if (!member.lastLoginAt) return <span className="staff-never">Never signed in</span>
+  return <>{member.lastActivityAt ? <When value={member.lastActivityAt} now={now} /> : 'No activity recorded'}<small>Signed in <When value={member.lastLoginAt} now={now} relative={false} /></small></>
+}
 
-export function StaffAdministration({ user, onSessionEnded }: Props) {
+type Props = { user: StaffUser; onSessionEnded: () => void; onViewActivity?: (id: string) => void }
+
+export function StaffAdministration({ user, onSessionEnded, onViewActivity }: Props) {
   // Gated before the workspace hooks run, so a non-admin never sends a staff request. The server still decides.
   if (!canAdministerStaff(user.role)) return <section className="panel staff-workspace" aria-labelledby="staff-restricted-title">
     <h2 id="staff-restricted-title">Administrator access required</h2><p>Staff accounts and access are managed by administrators.</p>
   </section>
-  return <StaffWorkspace user={user} onSessionEnded={onSessionEnded} />
+  return <StaffWorkspace user={user} onSessionEnded={onSessionEnded} onViewActivity={onViewActivity} />
 }
 
-function StaffWorkspace({ user, onSessionEnded }: Props) {
+function StaffWorkspace({ user, onSessionEnded, onViewActivity }: Props) {
   const [role, setRole] = useState<BackendRole | ''>(''), [status, setStatus] = useState<StaffStatus | ''>(''), [page, setPage] = useState(1)
   const [revision, setRevision] = useState(0), [adding, setAdding] = useState(false)
   const [selection, setSelection] = useState<{ id: string; initial?: StaffMember; notice?: string }>()
@@ -51,7 +59,7 @@ function StaffWorkspace({ user, onSessionEnded }: Props) {
   return <>
     <section ref={directory} hidden={Boolean(selection)} className="panel staff-workspace" aria-labelledby="staff-directory-title" aria-busy={loading}>
       <div className="staff-header">
-        <div><p className="staff-kicker">Staff administration</p><h2 id="staff-directory-title" ref={heading} tabIndex={-1}>Staff directory</h2>
+        <div><h2 id="staff-directory-title" ref={heading} tabIndex={-1}>Staff directory</h2>
           <p>Every staff account with access to Medicare, its role and its current status.</p></div>
         <div className="staff-toolbar">
           <button type="button" className="button button-ghost" aria-label="Refresh staff directory" disabled={loading} onClick={reload}><RefreshCw size={17} aria-hidden="true" />Refresh</button>
@@ -84,11 +92,12 @@ function StaffWorkspace({ user, onSessionEnded }: Props) {
       </div>}
       {data && data.users.length > 0 && <>
         <table className="staff-table" aria-label="Staff accounts">
-          <thead><tr><th scope="col">Staff member</th><th scope="col">Staff number</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+          <thead><tr><th scope="col">Staff member</th><th scope="col">Staff number</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last active</th><th scope="col">Actions</th></tr></thead>
           <tbody>{data.users.map((member) => <tr key={member.id}>
-            <td><div className="staff-person"><span className="staff-avatar" aria-hidden="true">{initials(member)}</span><div><strong>{staffName(member)}</strong>{selfTag(member)}</div></div></td>
-            <td>{member.staffNumber}</td><td className="staff-email">{member.email}</td><td>{roleLabel(member.role)}</td>
-            <td><StaffStatusBadge status={member.status} /></td><td>{manage(member)}</td>
+            {/* Six columns: the email sits under the name, so names, numbers and roles never squeeze into a narrow column. */}
+            <td><div className="staff-person"><span className="staff-avatar" aria-hidden="true">{initials(member)}</span><div><strong>{staffName(member)}</strong><span className="staff-email">{member.email}</span>{selfTag(member)}</div></div></td>
+            <td className="staff-number">{member.staffNumber}</td><td>{roleLabel(member.role)}</td>
+            <td><StaffStatusBadge status={member.status} /></td><td className="staff-last-seen"><LastSeen member={member} /></td><td>{manage(member)}</td>
           </tr>)}</tbody>
         </table>
         <ul className="staff-cards" aria-label="Staff accounts">{data.users.map((member) => <li key={member.id}>
@@ -99,6 +108,7 @@ function StaffWorkspace({ user, onSessionEnded }: Props) {
               <div><dt>Staff number</dt><dd>{member.staffNumber}</dd></div>
               <div><dt>Role</dt><dd>{roleLabel(member.role)}</dd></div>
               <div><dt>Status</dt><dd><StaffStatusBadge status={member.status} /></dd></div>
+              <div><dt>Last active</dt><dd className="staff-last-seen"><LastSeen member={member} /></dd></div>
               <div className="staff-card-email"><dt>Email</dt><dd className="staff-email">{member.email}</dd></div>
             </dl>
             {manage(member)}
@@ -106,12 +116,12 @@ function StaffWorkspace({ user, onSessionEnded }: Props) {
         </li>)}</ul>
       </>}
       {onlySelf && <div className="staff-callout"><ShieldCheck size={20} aria-hidden="true" /><div><p><strong>No additional staff accounts have been added yet.</strong></p>
-        <p>Add records officers, doctors in charge and other administrators so each person signs in with their own account.</p></div>
+        <p>Add records officers, medical officers and other administrators so each person signs in with their own account.</p></div>
         <button type="button" className="button button-primary" onClick={() => setAdding(true)}>Add staff member</button></div>}
       {data && data.pagination.total > 0 && <Pagination label="Staff pages" pagination={data.pagination} onPage={setPage} />}
     </section>
     {selection && <StaffDetail key={selection.id} id={selection.id} initial={selection.initial} notice={selection.notice} selfId={user.id}
-      onBack={() => setSelection(undefined)} onChanged={reload} onSessionEnded={onSessionEnded} />}
+      onBack={() => setSelection(undefined)} onChanged={reload} onSessionEnded={onSessionEnded} onViewActivity={onViewActivity} />}
     {adding && <AddStaffDialog onClose={() => setAdding(false)} onCreated={created} />}
   </>
 }

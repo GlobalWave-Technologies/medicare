@@ -1,5 +1,32 @@
 # Step 12 — Clinical records frontend integration
 
+## Phase 19A update
+
+The clinical frontend is now admission-aware ([admissions and discharge](admissions-discharge.md)).
+The rest of this page records Step 12; where it describes appointments it is historical.
+
+- **Medical Records** (Medical Officer only) opens on the currently admitted patients, searchable by
+  name, patient number, admission number or room. Choosing one opens their medical record for that
+  admission: a banner with the patient, admission number, status, room and admission details;
+  **New clinical record**; the admission's records; its medication orders; and
+  **Discharge patient**.
+- **New clinical record** is offered only on a current admission and starts in the admission's
+  room. There are no walk-in records; records made before Phase 19A stay readable, and their drafts
+  can still be finished.
+- **Phase 19B:** medicines are chosen from a searchable list of the catalog, with strength, dose,
+  route, frequency, duration and instructions, edited as order cards; history separates the current
+  admission from previous ones. See [medication catalog and prescribing](medication-catalog-prescribing.md).
+  The next bullet describes the first, free-text version.
+- **Medications** is a section of the record form, like diagnoses: medicine (required), dose, route
+  (with common suggestions), frequency, duration and notes, up to 30 orders. Orders are editable
+  while the record is a draft and read-only once it is finalized. Record details show them, and a
+  patient's medication history lists every order with its record, admission and status.
+- **Discharge** from the medical record uses the shared discharge dialog. If a draft remains the
+  dialog shows "This admission has an unfinished clinical record." and offers to open the record.
+  After discharge the medical record becomes read-only apart from amendments.
+- Record details show the admission number; legacy records linked to an appointment show it as
+  "Past appointment". `AppointmentClinicalLink` was removed with the appointment screens.
+
 ## Scope and findings
 
 Step 12 connects the existing clinical backend to the React frontend. The previous
@@ -106,9 +133,9 @@ with the server response and refresh the list. Errors use safe messages and a
 support reference rather than response bodies. Unknown encounter detail is a
 generic not-found state. Detail refresh failure clears stale record content.
 
-## Appointment workflow
+## Appointment workflow (retired)
 
-An own-assignment doctor appointment detail mounts `AppointmentClinicalLink`, which
+Retired in Phase 19A; kept for reference. An own-assignment doctor appointment detail mounts `AppointmentClinicalLink`, which
 queries `GET /encounters?appointmentId=<uuid>&page=1&limit=1`. An existing encounter
 offers **Open clinical record**. An absent encounter offers **Start clinical
 encounter** only for CHECKED_IN or COMPLETED. Discovery failure is an error, not
@@ -272,7 +299,8 @@ keyboard acceptance remain pre-deployment work.
 
 ## File inventory
 
-Created product files:
+Created product files (Step 12; `AppointmentClinicalLink.tsx` was removed in Phase 19A, which
+added `MedicationHistory.tsx`):
 
 - `client/src/api/encounters.ts`
 - `client/src/features/records/AppointmentClinicalLink.tsx`

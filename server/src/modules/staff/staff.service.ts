@@ -6,8 +6,8 @@ import { appendAuditEvent } from '../../shared/audit/audit.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { AuthContext, AuditContext } from '../auth/auth.context.js'
 import { securityTransaction, assertCurrentActor } from '../auth/security.transaction.js'
-import { revokeAllUserSessions } from '../auth/session.service.js'
-import { staffSelect, type AuthPrincipal } from './staff.dto.js'
+import { revokeAllUserSessions, revokeSession } from '../auth/session.service.js'
+import { staffDirectorySelect, staffSelect, type StaffRecord } from './staff.dto.js'
 import { idempotent, type IdempotencyScope, type IdempotentResult } from '../../shared/idempotency/idempotency.js'
 import { paginationWindow } from '../../shared/utils/pagination.js'
 import type { createStaffSchema, roleSchema, staffQuerySchema, statusSchema } from './staff.validation.js'
@@ -26,7 +26,7 @@ export function staffFingerprint(input: z.infer<typeof createStaffSchema>) {
 }
 
 export async function createStaff(db: PrismaClient, auth: AuthContext, context: AuditContext, input: z.infer<typeof createStaffSchema>,
-  idempotency?: IdempotencyScope): Promise<IdempotentResult<AuthPrincipal>> {
+  idempotency?: IdempotencyScope): Promise<IdempotentResult<StaffRecord>> {
   const { password, ...identity } = input
   const passwordHash = await hashPassword(password)
   try {
@@ -42,8 +42,9 @@ export async function createStaff(db: PrismaClient, auth: AuthContext, context: 
           if (await tx.staffUser.findUnique({ where: { staffNumber: identity.staffNumber }, select: { id: true } })) {
             throw new AppError(409, 'STAFF_NUMBER_ALREADY_EXISTS', 'Staff number is already assigned')
           }
+          // The administrator chose this password, so it is temporary: the person must replace it.
           const user = await tx.staffUser.create({ data: { ...identity, passwordHash,
-            passwordChangedAt: new Date(), status: 'ACTIVE' }, select: staffSelect })
+            passwordChangedAt: new Date(), mustChangePassword: true, status: 'ACTIVE' }, select: staffSelect })
           await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'STAFF_CREATED',
             entityType: 'STAFF_USER', entityId: user.id, metadata: { source: 'API' } })
           return { value: user, resource: { staffUserId: user.id } }
@@ -60,14 +61,14 @@ export async function createStaff(db: PrismaClient, auth: AuthContext, context: 
 export async function listStaff(db: PrismaClient, query: z.infer<typeof staffQuerySchema>) {
   const where = { role: query.role, status: query.status }
   const [users, total] = await Promise.all([
-    db.staffUser.findMany({ where, select: staffSelect, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+    db.staffUser.findMany({ where, select: staffDirectorySelect, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       ...paginationWindow(query) }), db.staffUser.count({ where }),
   ])
   return { users, pagination: { page: query.page, limit: query.limit, total } }
 }
 
 export async function getStaff(db: PrismaClient, id: string) {
-  const user = await db.staffUser.findUnique({ where: { id }, select: staffSelect })
+  const user = await db.staffUser.findUnique({ where: { id }, select: staffDirectorySelect })
   if (!user) throw missing()
   return user
 }
@@ -111,6 +112,21 @@ export function revokeStaffSessions(db: PrismaClient, auth: AuthContext, context
   })
 }
 
+// An administrator ends one session of a staff member (for example a browser left signed in on a
+// shared computer). Their other sessions continue. Ending a session that has already ended changes
+// nothing and is refused, so the audit records only real revocations.
+export function revokeStaffSession(db: PrismaClient, auth: AuthContext, context: AuditContext, id: string, sessionId: string) {
+  return securityTransaction(db, async (tx) => {
+    await assertCurrentActor(tx, auth, true)
+    if (!await tx.staffUser.findUnique({ where: { id }, select: { id: true } })) throw missing()
+    const session = await tx.staffSession.findFirst({ where: { id: sessionId, staffUserId: id, revokedAt: null, expiresAt: { gt: new Date() } }, select: { id: true } })
+    if (!session) throw new AppError(404, 'SESSION_NOT_FOUND', 'This session has already ended')
+    await revokeSession(tx, session.id)
+    await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'STAFF_SESSION_REVOKED',
+      entityType: 'STAFF_USER', entityId: id, metadata: { source: 'API' } })
+  })
+}
+
 // An administrator sets new credentials without learning the old password. Every session the
 // account holds is signed out. A pending account keeps its status: activation stays a separate step.
 export async function resetStaffPassword(db: PrismaClient, auth: AuthContext, context: AuditContext, id: string, password: string) {
@@ -125,7 +141,8 @@ export async function resetStaffPassword(db: PrismaClient, auth: AuthContext, co
     if (user.status === 'DISABLED') {
       throw new AppError(409, 'ACCOUNT_DISABLED', 'A disabled account cannot be given new credentials')
     }
-    const updated = await tx.staffUser.update({ where: { id }, data: { passwordHash, passwordChangedAt: new Date() }, select: staffSelect })
+    // A reset (or a pending account's first password) is temporary until the person replaces it.
+    const updated = await tx.staffUser.update({ where: { id }, data: { passwordHash, passwordChangedAt: new Date(), mustChangePassword: true }, select: staffSelect })
     await revokeAllUserSessions(tx, id)
     await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'PASSWORD_RESET',
       entityType: 'STAFF_USER', entityId: id, metadata: { source: 'API' } })

@@ -49,21 +49,31 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"runtime_role";
 GRANT USAGE ON SCHEMA public TO :"runtime_role";
 
 -- Read access to every application table. The migration history (_prisma_migrations) stays private.
+-- Appointment is read-only history: appointments are no longer an application workflow.
 GRANT SELECT ON "StaffUser", "StaffSession", "Patient", "Appointment", "Encounter", "EncounterComplaint",
-  "Diagnosis", "EncounterAmendment", "Notification", "NotificationRecipient", "AuditEvent", "IdempotencyRecord"
+  "Diagnosis", "MedicationOrder", "EncounterAmendment", "Notification", "NotificationRecipient", "AuditEvent", "IdempotencyRecord",
+  "Admission", "AdmissionRoomHistory", "Medication"
   TO :"runtime_role";
 
--- Rows the application edits: accounts and sessions, demographics, schedules, draft encounters
--- (finalized ones are refused by trigger) and notification read state (set once, by trigger).
-GRANT INSERT, UPDATE ON "StaffUser", "StaffSession", "Patient", "Appointment", "Encounter", "NotificationRecipient"
+-- Rows the application edits: accounts and sessions, demographics, admissions (current room and
+-- the one-way discharge; triggers refuse anything else), closing a room assignment, draft
+-- encounters (finalized ones are refused by trigger), notification read state (set once, by
+-- trigger) and the medication catalog (adding, deactivating and reactivating; names are permanent
+-- by trigger and entries are never deleted).
+GRANT INSERT, UPDATE ON "StaffUser", "StaffSession", "Patient", "Admission", "AdmissionRoomHistory", "Encounter", "NotificationRecipient",
+  "Medication"
   TO :"runtime_role";
 
 -- Written once and never changed: audit history, amendments, notifications, retry records, and
--- draft complaints and diagnoses (replaced as a set while the encounter is a draft).
-GRANT INSERT ON "AuditEvent", "EncounterAmendment", "Notification", "IdempotencyRecord", "EncounterComplaint", "Diagnosis"
+-- draft complaints, diagnoses and medication orders (replaced as a set while the encounter is a draft).
+GRANT INSERT ON "AuditEvent", "EncounterAmendment", "Notification", "IdempotencyRecord", "EncounterComplaint", "Diagnosis", "MedicationOrder"
   TO :"runtime_role";
 
--- The only deletes: replacing draft complaints and diagnoses (triggers refuse them once finalized),
--- and the scheduled pruning of expired retry records and expired sessions.
-GRANT DELETE ON "EncounterComplaint", "Diagnosis", "IdempotencyRecord", "StaffSession" TO :"runtime_role";
+-- The only deletes: replacing draft complaints, diagnoses and medication orders (triggers refuse
+-- them once finalized), and the scheduled pruning of expired retry records and expired sessions.
+GRANT DELETE ON "EncounterComplaint", "Diagnosis", "MedicationOrder", "IdempotencyRecord", "StaffSession" TO :"runtime_role";
+
+-- Admission numbers (AD-000001, ...) are drawn from this sequence. USAGE allows nextval only;
+-- the runtime role cannot reset it.
+GRANT USAGE ON SEQUENCE "admission_number_seq" TO :"runtime_role";
 COMMIT;

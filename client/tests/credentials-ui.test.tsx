@@ -16,7 +16,7 @@ import * as staff from './staff-harness'
 
 const identity = vi.hoisted(() => ({ role: 'RECORDS_OFFICER' as StaffUser['role'] }))
 vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({
-  id: '70000000-0000-4000-8000-000000000017', staffNumber: 'STF-CRED01', firstName: 'Cora', lastName: 'Credentials', email: 'cora@example.test', status: 'ACTIVE', role: identity.role }) }))
+  id: '70000000-0000-4000-8000-000000000017', staffNumber: 'STF-CRED01', firstName: 'Cora', lastName: 'Credentials', email: 'cora@example.test', status: 'ACTIVE', mustChangePassword: false, role: identity.role }) }))
 
 const NEW_PASSWORD = 'Synthetic replacement passphrase'
 const secrets = () => [localStorage.length, sessionStorage.length, document.cookie]

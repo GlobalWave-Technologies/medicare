@@ -97,8 +97,8 @@ it('changes a role after confirmation and shows the server-returned role with th
   await choose('newRole', 'DOCTOR_IN_CHARGE'); await submit()
   expect(staffApi.changeRole).toHaveBeenCalledExactlyOnceWith(officer.id, 'DOCTOR_IN_CHARGE')
   expect(dialog()).toBeNull()
-  expect(notice()).toBe('Role updated to Doctor in Charge. Existing sessions have been signed out.')
-  expect(section('Role').querySelector('.staff-section-value')?.textContent).toBe('Doctor in Charge')
+  expect(notice()).toBe('Role updated to Medical Officer. Existing sessions have been signed out.')
+  expect(section('Role').querySelector('.staff-section-value')?.textContent).toBe('Medical Officer')
   expect(directoryCalls().length).toBeGreaterThan(before); expect(harness.ended).not.toHaveBeenCalled()
 })
 it('does not change anything locally until the role change is confirmed by the server', async () => {
@@ -107,7 +107,7 @@ it('does not change anything locally until the role change is confirmed by the s
   expect(staffApi.changeRole).toHaveBeenCalledOnce(); expect(confirmButton().textContent).toBe('Changing role…')
   expect(section('Role').querySelector('.staff-section-value')?.textContent).toBe('Records Officer')
   change.resolve({ user: { ...officer, role: 'ADMIN' } }); await tick()
-  expect(section('Role').querySelector('.staff-section-value')?.textContent).toBe('Admin')
+  expect(section('Role').querySelector('.staff-section-value')?.textContent).toBe('Administrator')
 })
 it('explains last-active-administrator protection and keeps the role and session', async () => {
   vi.mocked(staffApi.changeRole).mockRejectedValue(new ApiError(409, 'At least one active administrator must remain', 'LAST_ADMIN_PROTECTION', 'req-last'))
@@ -116,7 +116,7 @@ it('explains last-active-administrator protection and keeps the role and session
   await choose('newRole', 'RECORDS_OFFICER'); await submit()
   expect(dialog()!.querySelector('[role="alert"]')?.textContent).toBe('You can’t remove the last active administrator. Make another account an active Admin first.Support reference: req-last')
   expect(dialog()!.textContent).not.toContain('At least one active administrator must remain')
-  await click('Cancel'); expect(section('Role').querySelector('.staff-section-value')?.textContent).toBe('Admin'); expect(notice()).toBeUndefined()
+  await click('Cancel'); expect(section('Role').querySelector('.staff-section-value')?.textContent).toBe('Administrator'); expect(notice()).toBeUndefined()
   expect(harness.ended).not.toHaveBeenCalled()
 })
 it('warns about a self role change and ends the session only after the server accepts it', async () => {

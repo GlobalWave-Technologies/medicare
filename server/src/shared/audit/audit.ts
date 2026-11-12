@@ -5,7 +5,7 @@ const metadataSchema = z.object({
   source: z.enum(['CLI', 'API', 'SYSTEM']),
   audience: z.enum(['ALL', 'ROLE']).optional(),
   recipientCount: z.number().int().min(1).max(10000).optional(),
-  changedFields: z.array(z.enum(['role', 'status', 'demographics', 'schedule', 'clinicalRecord', 'readAt'])).max(6).optional(),
+  changedFields: z.array(z.enum(['role', 'status', 'demographics', 'schedule', 'clinicalRecord', 'readAt', 'medications'])).max(6).optional(),
 }).strict().refine((value) => (value.audience === undefined) === (value.recipientCount === undefined))
 
 export interface AuditInput {

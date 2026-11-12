@@ -2,7 +2,7 @@ import { useId } from 'react'
 import { periodLabel, type ReportBucket } from './report-time'
 import { formatCount, labelIndexes, niceTop } from './report-utils'
 
-export type ChartSeries = { label: string; tone: 'primary' | 'secondary' | 'accent'; values: number[] }
+export type ChartSeries = { label: string; tone: 'primary' | 'secondary'; values: number[] }
 const bucketWords: Record<ReportBucket, [string, string, string]> = { day: ['day', 'days', 'Date'], week: ['week', 'weeks', 'Week starting'], month: ['month', 'months', 'Month'] }
 const partialNote: Record<ReportBucket, string> = {
   day: 'Each bar is one UTC calendar day.',

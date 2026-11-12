@@ -10,7 +10,9 @@
 .staff-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin: 20px 0 10px; }
 .staff-filters label { min-width: 220px; }
 .staff-scope { margin: 0 0 10px; color: var(--muted); font-size: var(--text-md); }
-.staff-table th:first-child { width: 26%; } .staff-table th:nth-child(3) { width: 24%; } .staff-table th:last-child { width: 118px; }
+.staff-table th:first-child { width: 36%; } .staff-table th:last-child { width: 118px; }
+.staff-table .staff-number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.staff-person .staff-email { color: var(--muted); font-size: var(--text-sm); }
 .staff-table td { vertical-align: middle; }
 .staff-person { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .staff-person > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
@@ -41,7 +43,6 @@
 .staff-section p { margin: 0; line-height: 1.55; font-size: var(--text-md); }
 .staff-section .staff-section-value { color: var(--deep); font-size: 17px; font-weight: 700; }
 .staff-section-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; padding-top: 6px; }
-.staff-section-risk { border-color: var(--danger-line); }
 .staff-form > fieldset { display: grid; gap: 18px; }
 .staff-form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .staff-role-choice { display: grid; gap: 8px; }
@@ -77,3 +78,6 @@
   .staff-password-toggle { margin-left: 0; width: 100%; }
 }
 @media (max-width: 360px) { .staff-card dl { grid-template-columns: minmax(0, 1fr); } .staff-avatar:not(.staff-avatar-large) { display: none; } }
+/* Last active, with the last sign-in under it. */
+.staff-last-seen small { display: block; color: var(--muted); font-size: var(--text-xs); }
+.staff-never { color: var(--muted); }

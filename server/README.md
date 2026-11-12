@@ -3,18 +3,21 @@
 Node.js, strict TypeScript, Express 5, PostgreSQL, Prisma 7, Zod, Pino, Helmet,
 CORS, Vitest, and Supertest. The foundation now includes the hospital domain
 schema, reviewed migrations, an explicit first-administrator CLI, database-backed
-staff authentication, staff administration, patient demographics, appointment scheduling,
-clinical encounters, persistent internal staff notifications, and role-scoped dashboard/report aggregates.
-See [dashboard and reports API](../docs/dashboard-reports-api.md) for the four GET routes,
-UTC ranges, metric definitions, permissions, clinical access audits and frontend gaps.
+staff authentication, staff administration, patient demographics, admissions and discharge,
+clinical encounters with medication orders from a controlled medication catalog, persistent internal staff notifications, and
+role-scoped dashboard/report aggregates.
+See [admissions and discharge](../docs/admissions-discharge.md) for hospital stays, room history,
+discharge rules, database guarantees and the retirement of appointments.
+See [dashboard and reports API](../docs/dashboard-reports-api.md) for the dashboard and report
+routes, UTC ranges, metric definitions and permissions.
 Step 8 adds no report exports or dashboard/report frontend integration.
 See [notification API](../docs/notifications-api.md) for own-inbox access, read state,
-admin broadcasts, generic appointment notices and transactional delivery. Step 7
+admin broadcasts and delivery (the former appointment notices are retired). Step 7
 does not integrate notification screens or change frontend code.
 See [clinical records API](../docs/clinical-records-api.md) for doctor-only clinical
 access, draft/finalization rules, immutable history, amendments and audit behavior.
-See [appointment API and scheduling policy](../docs/appointment-api.md) for doctor
-scope, lifecycle, UTC inputs, conflict constraints and PostgreSQL extension requirements.
+The [appointment API](../docs/appointment-api.md) page describes the retired appointment
+feature; its table is kept read-only.
 See [patient API and permission policy](../docs/patient-api.md) for the six patient
 routes, validation, duplicate handling, archival, audit and frontend differences.
 See [authentication](../docs/authentication.md)
@@ -58,7 +61,7 @@ the frontend. `npm run dev` retains the existing frontend-only behavior.
 Frontend login now uses real sessions; see [frontend authentication](../docs/frontend-auth-integration.md).
 Use `CLIENT_ORIGIN=http://localhost:5173` with the existing Vite proxy. CORS exposes
 `Retry-After` so an explicit same-site API URL can show login rate-limit delays.
-Authentication, patients, appointments and clinical records use the server APIs.
+Authentication, patients, admissions and clinical records use the server APIs.
 Staff management, notifications, dashboard analytics and reports/exports remain
 explicitly unavailable in the frontend. See the [release readiness report](../docs/release-readiness-report.md)
 for deployment prerequisites and the verified release scope.
@@ -251,15 +254,17 @@ src/
   modules/health/         Health controller and router
   modules/staff/          Validation, safe DTOs, administration and first-admin CLI service
   modules/patients/       Demographic validation, DTOs, services and routes
-  modules/appointments/   Scheduling, lifecycle, scoped DTOs and transactional audits
+  modules/admissions/     Admission, room change, discharge, DTOs and transactional audits
+  modules/medications/    Medication catalog: list, options, add, deactivate, reactivate
+  modules/staff-activity/ Admin-only signed-in staff, last activity and safe activity sentences
   modules/encounters/     Clinical drafts, finalization, amendments and safe DTOs
-  modules/notifications/  Own inbox, read state, broadcasts and appointment notices
+  modules/notifications/  Own inbox, read state and broadcasts
   modules/reports/        Role dashboards, bounded UTC aggregates and report DTOs
   cli/                    Explicit administrator bootstrap entry point
   shared/errors/          Public application error type
   shared/logger/          Pino setup and redaction
   shared/security/        Password validation, Argon2id hashing and verification
-  shared/authorization/   Explicit demographic, appointment and clinical permissions
+  shared/authorization/   Explicit demographic, admission and clinical permissions
   shared/audit/           Transactional audit helper with allowlisted metadata
   shared/validation/      Shared timezone-aware timestamp validation
   shared/utils/           Bounded asynchronous operations

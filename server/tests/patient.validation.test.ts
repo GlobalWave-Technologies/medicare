@@ -3,20 +3,27 @@ import { hasPermission, permissions } from '../src/shared/authorization/permissi
 import { createPatientSchema, updatePatientSchema, patientQuerySchema, dateOfBirthSchema, phoneSchema } from '../src/modules/patients/patient.validation.js'
 
 describe('domain permission policy', () => {
-  for (const role of ['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const) {
-    it.each(permissions.filter((permission) => !permission.startsWith('APPOINTMENT_')))(`${role}: %s`, (permission) => {
-      const reportPermissions = {
-        DASHBOARD_VIEW_ADMIN: role === 'ADMIN', DASHBOARD_VIEW_RECORDS: role === 'RECORDS_OFFICER',
-        DASHBOARD_VIEW_CLINICAL: role === 'DOCTOR_IN_CHARGE', REPORT_OPERATIONAL_VIEW: role !== 'DOCTOR_IN_CHARGE',
-        REPORT_CLINICAL_AGGREGATE_VIEW: role === 'DOCTOR_IN_CHARGE',
-      }
-      const expected = permission in reportPermissions ? reportPermissions[permission as keyof typeof reportPermissions] : permission.startsWith('NOTIFICATION_')
-        ? permission !== 'NOTIFICATION_BROADCAST' || role === 'ADMIN'
-        : role === 'DOCTOR_IN_CHARGE' ? permission === 'PATIENT_READ' || permission.startsWith('CLINICAL_RECORD_')
-          : permission.startsWith('PATIENT_')
-      expect(hasPermission(role, permission)).toBe(expected)
+  // Phase 19A: every role registers and admits patients and changes rooms; only Medical Officers
+  // (DOCTOR_IN_CHARGE) discharge and read or write clinical records; Records and Admin edit and
+  // archive demographics and read operational reports; only Admin broadcasts.
+  const all = ['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const
+  const policy: Record<(typeof permissions)[number], readonly (typeof all)[number][]> = {
+    DASHBOARD_VIEW_ADMIN: ['ADMIN'], DASHBOARD_VIEW_RECORDS: ['RECORDS_OFFICER'], DASHBOARD_VIEW_CLINICAL: ['DOCTOR_IN_CHARGE'],
+    REPORT_OPERATIONAL_VIEW: ['ADMIN', 'RECORDS_OFFICER'],
+    NOTIFICATION_READ_OWN: all, NOTIFICATION_MANAGE_OWN: all, NOTIFICATION_BROADCAST: ['ADMIN'],
+    PATIENT_READ: all, PATIENT_CREATE: all, PATIENT_UPDATE: ['ADMIN', 'RECORDS_OFFICER'], PATIENT_ARCHIVE: ['ADMIN', 'RECORDS_OFFICER'],
+    ADMISSION_READ: all, ADMISSION_CREATE: all, ADMISSION_UPDATE: all, ADMISSION_DISCHARGE: ['DOCTOR_IN_CHARGE'],
+    CLINICAL_RECORD_READ: ['DOCTOR_IN_CHARGE'], CLINICAL_RECORD_CREATE: ['DOCTOR_IN_CHARGE'], CLINICAL_RECORD_AMEND: ['DOCTOR_IN_CHARGE'],
+    MEDICATION_CATALOG_READ: ['ADMIN', 'DOCTOR_IN_CHARGE'], MEDICATION_CATALOG_MANAGE: ['ADMIN'],
+  }
+  for (const role of all) {
+    it.each(permissions)(`${role}: %s`, (permission) => {
+      expect(hasPermission(role, permission)).toBe(policy[permission].includes(role))
     })
   }
+  it('no longer grants any appointment or personal clinical-report permission', () => {
+    expect(permissions.filter((permission) => /APPOINTMENT|CLINICAL_AGGREGATE/.test(permission))).toEqual([])
+  })
 })
 
 describe('patient validation', () => {

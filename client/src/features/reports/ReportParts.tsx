@@ -1,8 +1,7 @@
 import { useId, type ReactNode } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { ApiError } from '../../api/client'
-import type { AppointmentSummary } from '../../api/reports'
-import { appointmentStatuses, formatCount, reportError } from './report-utils'
+import { reportError } from './report-utils'
 
 export function KpiCard({ label, value, detail, action }: {
   label: string; value: string; detail?: ReactNode; action?: { label: string; onClick: () => void }
@@ -14,20 +13,6 @@ export function KpiCard({ label, value, detail, action }: {
     {detail && <p className="kpi-detail">{detail}</p>}
     {action && <button type="button" className="kpi-action" onClick={action.onClick}>{action.label}<ArrowRight size={16} aria-hidden="true" /></button>}
   </article>
-}
-
-// Counts are given in words; the bar length and colour only reinforce them.
-export function StatusBreakdown({ summary, title, empty }: { summary: AppointmentSummary; title: string; empty: string }) {
-  const id = useId(), total = summary.totalAppointments
-  return <section className="status-breakdown" aria-labelledby={id}>
-    <h3 id={id}>{title}</h3>
-    {total === 0 && <p className="report-empty-note">{empty}</p>}
-    <ul>{appointmentStatuses.map(({ key, label, tone }) => <li key={key}>
-      <span className="status-breakdown-label"><span className={`status-dot tone-${tone}`} aria-hidden="true" />{label}<span className="visually-hidden">:</span></span>
-      <span className="status-breakdown-track" aria-hidden="true"><span className={`tone-${tone}`} style={{ width: `${total ? summary[key] / total * 100 : 0}%` }} /></span>
-      <strong>{formatCount(summary[key])}</strong>
-    </li>)}</ul>
-  </section>
 }
 
 export function ReportFeedback({ error, subject = 'report', onRetry }: { error: unknown; subject?: 'report' | 'dashboard'; onRetry?: () => void }) {

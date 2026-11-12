@@ -1,21 +1,22 @@
 import type { BackendRole } from '../../api/auth'
 import { ApiError, authErrorMessage } from '../../api/client'
 import type { CreateStaffInput, StaffMember, StaffStatus } from '../../api/staff'
-import { toUiRole } from '../../app/navigation'
+import { roleLabels, toUiRole } from '../../app/navigation'
 import { passwordProblem } from '../../lib/password'
 export { PASSWORD_MAX, PASSWORD_MIN, passwordLength } from '../../lib/password'
 
 export const canAdministerStaff = (role: BackendRole) => role === 'ADMIN'
-export const roleLabel = (role: BackendRole): string => toUiRole(role)
+// The same role names everywhere: the sidebar, Staff & Access and Staff Activity.
+export const roleLabel = (role: BackendRole): string => roleLabels[toUiRole(role)]
 export const staffName = (member: Pick<StaffMember, 'firstName' | 'lastName'>) => `${member.firstName} ${member.lastName}`
 export const initials = (member: Pick<StaffMember, 'firstName' | 'lastName'>) =>
   `${[...member.firstName][0] ?? ''}${[...member.lastName][0] ?? ''}`.toUpperCase()
 
 // Mirrors the server permission matrix so administrators can see what a role change means.
 export const roleAccess: Record<BackendRole, string> = {
-  ADMIN: 'Staff accounts and access, patient registration, appointment scheduling and staff broadcasts. No access to clinical records.',
-  RECORDS_OFFICER: 'Patient registration and appointment scheduling. No access to clinical records or staff administration.',
-  DOCTOR_IN_CHARGE: 'Patient lookup, assigned appointments and clinical records. No staff administration.',
+  ADMIN: 'Staff accounts and access, patient registration and admission, room changes, reports and staff broadcasts. No access to clinical records.',
+  RECORDS_OFFICER: 'Patient registration and demographics, admission and room changes, and reports. No access to clinical records or staff administration.',
+  DOCTOR_IN_CHARGE: 'Patient registration, admission, room changes, medical records, medications and discharge. No staff administration.',
 }
 export const statusLabels: Record<StaffStatus, string> = { PENDING: 'Pending', ACTIVE: 'Active', SUSPENDED: 'Suspended', DISABLED: 'Disabled' }
 export const statusMeaning: Record<StaffStatus, string> = {

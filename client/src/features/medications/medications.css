@@ -1,0 +1,33 @@
+/* Medication catalog (Admin). A list of names with an Active / Inactive status; no stock or prices. */
+.catalog-workspace { display: grid; gap: 18px; }
+.catalog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.catalog-header h2 { margin: 0 0 6px; }
+.catalog-header > svg { flex-shrink: 0; color: var(--brand); }
+.catalog-header .form-intro { margin: 0; }
+.catalog-add { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-muted); }
+.catalog-add h3 { margin: 0 0 4px; font-size: var(--text-md); }
+.catalog-add > label { color: var(--deep); font-size: var(--text-md); font-weight: 600; }
+.catalog-add-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.catalog-add-row input { flex: 1 1 16rem; }
+.catalog-add-row .button { flex: 0 0 auto; }
+.catalog-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.catalog-search { display: flex; flex: 1 1 16rem; align-items: center; gap: 10px; min-width: 0; padding: 0 12px; border: 1px solid var(--field-border); border-radius: var(--radius-sm); background: var(--surface); }
+.catalog-search svg { flex-shrink: 0; color: var(--muted); }
+.catalog-search input { padding: 10px 0; border: 0; background: transparent; }
+.catalog-search:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.catalog-search input:focus { outline: 0; }
+.catalog-list { display: grid; gap: 0; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); list-style: none; }
+.catalog-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.catalog-item:last-child { border-bottom: 0; }
+.catalog-name { flex: 1 1 12rem; min-width: 0; color: var(--deep); font-weight: 600; overflow-wrap: anywhere; }
+.status.catalog-active { --tone-fg: var(--success); --tone-bg: var(--success-bg); --tone-line: var(--success-line); }
+.status.catalog-inactive { --tone-fg: var(--neutral); --tone-bg: var(--neutral-bg); --tone-line: var(--neutral-line); }
+.catalog-problem { display: grid; gap: 8px; margin: 0; padding: 12px 14px; border: 1px solid var(--danger-line); border-radius: var(--radius-sm); background: var(--danger-bg); color: var(--danger); font-weight: 600; }
+.catalog-problem p { margin: 0; }
+.catalog-problem .button { justify-self: start; }
+.catalog-confirm { display: grid; gap: 16px; }
+.catalog-confirm p { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .catalog-add-row .button, .catalog-tools .button { width: 100%; }
+  .catalog-item .button { width: 100%; }
+}

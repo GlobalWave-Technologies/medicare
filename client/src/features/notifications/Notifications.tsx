@@ -3,8 +3,7 @@ import { Bell, CalendarDays, CheckCheck, Megaphone, RefreshCw } from 'lucide-rea
 import type { StaffUser } from '../../api/auth'
 import { notificationsApi, type BroadcastAudience, type BroadcastResult, type InboxNotification, type NotificationType } from '../../api/notifications'
 import { Pagination } from '../../components/ui/Pagination'
-import { displayTime, localTimezone } from '../appointments/appointment-time'
-import { useAppointmentClock } from '../appointments/useAppointments'
+import { displayTime, localTimezone, useClock } from '../../lib/time'
 import { BroadcastComposer } from './BroadcastComposer'
 import { NotificationDetail } from './NotificationDetail'
 import { NotificationFeedback } from './NotificationFeedback'
@@ -15,11 +14,11 @@ import './notifications.css'
 type ReadFilter = 'all' | 'unread' | 'read'
 const readFilters: [ReadFilter, string][] = [['all', 'All'], ['unread', 'Unread'], ['read', 'Read']]
 
-export function Notifications({ user, unread, onOpenAppointment }: { user: StaffUser; unread: UnreadCount; onOpenAppointment: (id: string) => void }) {
+export function Notifications({ user, unread }: { user: StaffUser; unread: UnreadCount }) {
   const [filter, setFilter] = useState<ReadFilter>('all'), [type, setType] = useState<NotificationType | ''>(''), [page, setPage] = useState(1), [revision, setRevision] = useState(0)
   const [selected, setSelected] = useState<InboxNotification | null>(null), [composing, setComposing] = useState(false)
   const [notice, setNotice] = useState(''), [actionError, setActionError] = useState<unknown>(), [marking, setMarking] = useState(false)
-  const markPending = useRef(false), now = useAppointmentClock()
+  const markPending = useRef(false), now = useClock()
   const { data, loading, error, replace } = useNotificationList({ page, limit: 20, read: filter === 'all' ? undefined : filter === 'read', type: type || undefined }, revision)
   const reload = () => setRevision((n) => n + 1)
   function refresh() { setNotice(''); setActionError(undefined); reload(); unread.refresh() }
@@ -43,7 +42,7 @@ export function Notifications({ user, unread, onOpenAppointment }: { user: Staff
   const empty = filter === 'unread' && !type ? 'No unread notifications.' : filtered ? 'No notifications match this filter.' : 'You’re all caught up. New operational notifications will appear here.'
   return <section className="panel notification-workspace">
     <div className="notification-header">
-      <div><p className="notification-kicker">Staff inbox</p><h2>Your notifications</h2><p>Only notifications delivered to your account are shown. Times in {localTimezone()}.</p></div>
+      <div><h2>Your notifications</h2><p>Only notifications delivered to your account are shown. Times in {localTimezone()}.</p></div>
       <div className="notification-toolbar">
         <button type="button" className="button button-ghost" aria-label="Refresh notifications" onClick={refresh}><RefreshCw size={17} aria-hidden="true" />Refresh</button>
         <button type="button" className="button button-ghost" disabled={marking || unread.count === 0} onClick={() => void markAll()}><CheckCheck size={17} aria-hidden="true" />{marking ? 'Marking all as read…' : 'Mark all as read'}</button>
@@ -52,8 +51,8 @@ export function Notifications({ user, unread, onOpenAppointment }: { user: Staff
     </div>
     <div className="notification-summary">
       <dl>
+        {/* The list's own result count shows how many are in this view; only the unread total is summarised. */}
         <div><dt>Unread</dt><dd>{unread.count !== undefined ? unread.count : unread.loading ? 'Loading…' : 'Unavailable'}</dd></div>
-        <div><dt>In this view</dt><dd>{data ? data.pagination.total : loading ? 'Loading…' : 'Unavailable'}</dd></div>
       </dl>
       {unread.count === undefined && !unread.loading && <button type="button" className="button button-ghost" onClick={unread.refresh}>Retry unread count</button>}
     </div>
@@ -83,14 +82,14 @@ export function Notifications({ user, unread, onOpenAppointment }: { user: Staff
           <div id={`${ids}-tags`} className="notification-tags">
             <span className={`notification-state ${item.readAt ? 'is-read' : 'is-unread'}`}>{item.readAt ? 'Read' : 'Unread'}</span>
             <span className="notification-type">{typeLabels[item.type] ?? 'Notification'}</span>
-            {target && <span className="notification-type">Linked appointment</span>}
+            {target && <span className="notification-type">Past appointment</span>}
           </div>
         </div>
       </li>
     })}</ul> : <div className="notification-empty" role="status"><Bell size={22} aria-hidden="true" /><p>{empty}</p></div>)}
     {data && data.pagination.page > Math.max(1, data.pagination.totalPages) && <button type="button" className="button button-ghost" onClick={() => setPage(1)}>Return to first page</button>}
     {data && data.pagination.total > 0 && <Pagination label="Notification pages" pagination={data.pagination} onPage={setPage} />}
-    {selected && <NotificationDetail notification={selected} onRead={read} onClose={() => setSelected(null)} onOpenAppointment={(id) => { setSelected(null); onOpenAppointment(id) }} />}
+    {selected && <NotificationDetail notification={selected} onRead={read} onClose={() => setSelected(null)} />}
     {composing && <BroadcastComposer onClose={() => setComposing(false)} onSent={sent} />}
   </section>
 }

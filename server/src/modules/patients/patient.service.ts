@@ -85,13 +85,14 @@ export async function listPatients(db: PrismaClient, query: PatientQuery) {
   if (query.search) {
     // Prisma's contains uses LIKE patterns. Escape wildcard characters so user
     // input is a literal substring, not an unbounded wildcard expression.
-    const escaped = escapeLike(query.search)
-    where.OR = [
-      { patientNumber: { contains: escaped, mode: 'insensitive' } },
-      { firstName: { contains: escaped, mode: 'insensitive' } },
-      { middleName: { contains: escaped, mode: 'insensitive' } },
-      { lastName: { contains: escaped, mode: 'insensitive' } },
-    ]
+    const fields = (text: string): Prisma.PatientWhereInput[] => {
+      const contains = { contains: escapeLike(text), mode: 'insensitive' as const }
+      return [{ patientNumber: contains }, { firstName: contains }, { middleName: contains }, { lastName: contains }]
+    }
+    // The whole text matches one field, or every word matches some field, so a full name such as
+    // "Ama Mensah" finds the patient as well as "Mensah" alone (at most five words are used).
+    const words = query.search.split(/\s+/).filter(Boolean).slice(0, 5)
+    where.OR = [...fields(query.search), ...(words.length > 1 ? [{ AND: words.map((word) => ({ OR: fields(word) })) }] : [])]
     if (/^[+0-9 ().-]+$/.test(query.search)) {
       const phone = normalizePhone(query.search)
       if (/^\+?\d+$/.test(phone)) where.OR.push({ phone: { contains: phone } })
@@ -143,6 +144,11 @@ function setArchived(db: PrismaClient, auth: AuthContext, context: AuditContext,
     const current = await tx.patient.findUnique({ where: { id }, select: patientSelect })
     if (!current) throw missing()
     if (Boolean(current.archivedAt) === archived) return current
+    // Archiving is administrative deactivation, never a side effect of discharge, and is refused
+    // while the patient is in hospital (the database enforces this too).
+    if (archived && current.admissions.length) {
+      throw new AppError(409, 'PATIENT_CURRENTLY_ADMITTED', 'Discharge the patient before archiving the record')
+    }
     if (!archived) await rejectProbableDuplicate(tx, current, id)
     const patient = await tx.patient.update({ where: { id }, data: { archivedAt: archived ? new Date() : null }, select: patientSelect })
     await appendAuditEvent(tx, { ...context, actorId: auth.principal.id,

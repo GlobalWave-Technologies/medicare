@@ -16,9 +16,11 @@ export async function assertCurrentActor(tx: Prisma.TransactionClient, auth: Aut
   const session = await tx.staffSession.findFirst({
     where: { id: auth.sessionId, staffUserId: auth.principal.id, revokedAt: null,
       expiresAt: { gt: new Date() }, staffUser: { status: 'ACTIVE' } },
-    select: { staffUser: { select: { role: true } } },
+    select: { staffUser: { select: { role: true, mustChangePassword: true } } },
   })
   if (!session) throw authenticationRequired()
   if (admin && session.staffUser.role !== 'ADMIN') throw new AppError(403, 'FORBIDDEN', 'Permission denied')
+  // Defence in depth behind requireAuth: administrative changes never run under a temporary password.
+  if (admin && session.staffUser.mustChangePassword) throw new AppError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your temporary password to continue')
   return session.staffUser.role
 }

@@ -1,25 +1,24 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { BackendRole } from '../../api/auth'
-import { reportBuckets, reportsApi, type AppointmentReport, type ClinicalActivityReport, type PatientReport, type ReportQuery } from '../../api/reports'
-import { KpiCard, ReportFeedback, ReportSkeleton, SectionHead, StatusBreakdown } from './ReportParts'
+import { reportBuckets, reportsApi, type AdmissionReport, type PatientReport, type ReportQuery } from '../../api/reports'
+import { KpiCard, ReportFeedback, ReportSkeleton, SectionHead } from './ReportParts'
 import { TrendChart } from './TrendChart'
 import { customRange, isRangeProblem, presetRange, rangeDates, rangeLabel, type RangePreset, type RangeProblem, type ReportBucket } from './report-time'
-import { appointmentStatuses, formatCount, formatRate, generatedLabel, plural, reportKinds, reportTitles, useKeyedRead, type ReportKind } from './report-utils'
+import { formatCount, generatedLabel, reportKinds, reportTitles, useKeyedRead, type ReportKind } from './report-utils'
 import './reports.css'
 
 type Preset = RangePreset | 'custom'
 type Applied = { preset: Preset; bucket: ReportBucket; from: string; to: string }
 type Draft = { preset: Preset; bucket: ReportBucket; fromDate: string; toDate: string }
-type Loaded = { kind: 'patients'; report: PatientReport } | { kind: 'appointments'; report: AppointmentReport } | { kind: 'clinical'; report: ClinicalActivityReport }
+type Loaded = { kind: 'patients'; report: PatientReport } | { kind: 'admissions'; report: AdmissionReport }
 const presets: [Preset, string][] = [['last7', 'Last 7 days'], ['last30', 'Last 30 days'], ['last90', 'Last 90 days'], ['custom', 'Custom dates']]
 const bucketLabels: Record<ReportBucket, string> = { day: 'Day', week: 'Week', month: 'Month' }
 const lower = (bucket: ReportBucket) => bucketLabels[bucket].toLowerCase()
 
 async function load(kind: ReportKind, query: ReportQuery, signal: AbortSignal): Promise<Loaded> {
   if (kind === 'patients') return { kind, report: await reportsApi.patients(query, signal) }
-  if (kind === 'appointments') return { kind, report: await reportsApi.appointments(query, signal) }
-  return { kind, report: await reportsApi.clinicalActivity(query, signal) }
+  return { kind, report: await reportsApi.admissions(query, signal) }
 }
 
 function PatientView({ report }: { report: PatientReport }) {
@@ -42,52 +41,33 @@ function PatientView({ report }: { report: PatientReport }) {
     </section>
   </>
 }
-function AppointmentView({ report }: { report: AppointmentReport }) {
+function AdmissionView({ report }: { report: AdmissionReport }) {
   const { summary, series, range } = report
-  return <section className="report-section" aria-labelledby="appointments-period">
-    <SectionHead id="appointments-period" title="In this reporting period">
-      <p>Appointments are counted by their scheduled start in this period, using each appointment’s current status, so later changes can update past periods. Upcoming appointments are shown on the Overview.</p>
-    </SectionHead>
-    <div className="kpi-grid">
-      <KpiCard label="Appointments" value={formatCount(summary.totalAppointments)} detail="All statuses, by scheduled start." />
-      <KpiCard label="Completed" value={formatCount(summary.completed)} detail="Marked completed." />
-      <KpiCard label="Cancellation rate" value={formatRate(summary.cancellationRate)} detail={`${formatCount(summary.cancelled)} of ${plural(summary.totalAppointments, 'appointment')} cancelled.`} />
-      <KpiCard label="No-show rate" value={formatRate(summary.noShowRate)} detail={`${formatCount(summary.noShow)} of ${plural(summary.totalAppointments, 'appointment')} marked no-show.`} />
-    </div>
-    <StatusBreakdown summary={summary} title="Appointments by current status" empty="No appointment activity was recorded in this period." />
-    {summary.totalAppointments > 0 && <TrendChart title={`Appointments per ${lower(range.bucket)}`} unit="appointments" bucket={range.bucket} periods={series.map((row) => row.period)}
-      series={[{ label: 'Appointments', tone: 'primary', values: series.map((row) => row.totalAppointments) }]}
-      columns={[{ label: 'Total', values: series.map((row) => row.totalAppointments) },
-        ...appointmentStatuses.map(({ key, label }) => ({ label, values: series.map((row) => row[key]) }))]} />}
-  </section>
-}
-function ClinicalView({ report }: { report: ClinicalActivityReport }) {
-  const { summary, series, range } = report
-  const empty = !summary.encountersInRange && !summary.finalizedEncountersInRange && !summary.amendmentsInRange
   return <>
-    <p className="report-scope">Only your own work: encounters you authored and amendments you added. No clinical text, diagnoses or patient details are included. Opening this report is recorded in the audit log.</p>
-    <section className="report-section" aria-labelledby="clinical-now">
-      <SectionHead id="clinical-now" title="Current status"><p>Right now, regardless of the reporting period.</p></SectionHead>
-      <div className="kpi-grid"><KpiCard label="My open drafts" value={formatCount(report.snapshot.currentAuthoredDrafts)} detail="Encounters you started that aren’t finalized yet." /></div>
+    <section className="report-section" aria-labelledby="admissions-now">
+      <SectionHead id="admissions-now" title="Current status"><p>Right now, regardless of the reporting period.</p></SectionHead>
+      <div className="kpi-grid"><KpiCard label="Currently admitted" value={formatCount(report.snapshot.currentAdmissions)} detail="Patients in hospital now." /></div>
     </section>
-    <section className="report-section" aria-labelledby="clinical-period">
-      <SectionHead id="clinical-period" title="In this reporting period"><p>Each measure uses its own date: the encounter date, the finalization date and the amendment date.</p></SectionHead>
+    <section className="report-section" aria-labelledby="admissions-period">
+      <SectionHead id="admissions-period" title="In this reporting period"><p>Admissions are counted by admission time and discharges by discharge time, each in its own period. A readmission counts as a new admission.</p></SectionHead>
       <div className="kpi-grid">
-        <KpiCard label="Encounters documented" value={formatCount(summary.encountersInRange)} detail="Encounters you authored, by encounter date." />
-        <KpiCard label="Encounters finalized" value={formatCount(summary.finalizedEncountersInRange)} detail="Your encounters, by finalization date." />
-        <KpiCard label="Amendments added" value={formatCount(summary.amendmentsInRange)} detail="Amendments you added, by amendment date." />
+        <KpiCard label="Admissions" value={formatCount(summary.admissionsInRange)} detail={`${rangeLabel(range)} (UTC).`} />
+        <KpiCard label="Discharges" value={formatCount(summary.dischargesInRange)} detail={`${rangeLabel(range)} (UTC).`} />
       </div>
-      {empty ? <p className="report-empty">No clinical activity was recorded in this period.</p>
-        : <TrendChart title={`My clinical activity per ${lower(range.bucket)}`} unit="items" bucket={range.bucket} periods={series.map((row) => row.period)} series={[
-          { label: 'Encounters documented', tone: 'primary', values: series.map((row) => row.encounters) },
-          { label: 'Encounters finalized', tone: 'secondary', values: series.map((row) => row.finalized) },
-          { label: 'Amendments added', tone: 'accent', values: series.map((row) => row.amendments) }]} />}
+      {!summary.admissionsInRange && !summary.dischargesInRange ? <p className="report-empty">No admissions or discharges were recorded in this period.</p>
+        : <TrendChart title={`Admissions and discharges per ${lower(range.bucket)}`} unit="admissions and discharges" bucket={range.bucket} periods={series.map((row) => row.period)} series={[
+          { label: 'Admissions', tone: 'primary', values: series.map((row) => row.admissions) },
+          { label: 'Discharges', tone: 'secondary', values: series.map((row) => row.discharges) }]} />}
     </section>
   </>
 }
 
 export function Reports({ role }: { role: BackendRole }) {
   const kinds = reportKinds(role)
+  if (!kinds.length) return <section className="panel reports-workspace"><p className="report-empty">Reports are available to administrators and records officers.</p></section>
+  return <ReportWorkspace kinds={kinds} />
+}
+function ReportWorkspace({ kinds }: { kinds: ReportKind[] }) {
   const [selected, setKind] = useState<ReportKind>(kinds[0]!)
   // Only a report this role may read can ever be active.
   const kind = kinds.includes(selected) ? selected : kinds[0]!
@@ -149,7 +129,7 @@ export function Reports({ role }: { role: BackendRole }) {
       <p id="report-utc-help" className="report-hint">Reporting periods use UTC calendar dates, and weeks start on Monday.{pending && ' Select Apply to update the report.'}</p>
     </form>
     <div className="report-results" aria-busy={loading}>
-      {loading && <ReportSkeleton label={`Loading ${title.toLowerCase()}…`} cards={kind === 'patients' ? 2 : kind === 'clinical' ? 1 : 4} />}
+      {loading && <ReportSkeleton label={`Loading ${title.toLowerCase()}…`} cards={kind === 'patients' ? 2 : 3} />}
       {error !== undefined && <ReportFeedback error={error} onRetry={() => setRevision((n) => n + 1)} />}
       {data && <>
         <div className="report-meta">
@@ -157,8 +137,7 @@ export function Reports({ role }: { role: BackendRole }) {
           <p>Generated <time dateTime={data.report.generatedAt}>{generatedLabel(data.report.generatedAt)}</time></p>
         </div>
         {data.kind === 'patients' && <PatientView report={data.report} />}
-        {data.kind === 'appointments' && <AppointmentView report={data.report} />}
-        {data.kind === 'clinical' && <ClinicalView report={data.report} />}
+        {data.kind === 'admissions' && <AdmissionView report={data.report} />}
       </>}
     </div>
   </>

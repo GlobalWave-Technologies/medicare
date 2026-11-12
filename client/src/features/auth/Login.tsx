@@ -2,14 +2,14 @@ import { useRef, useState, type FormEvent } from 'react'
 import {
   Eye,
   EyeOff,
+  KeyRound,
   ShieldCheck,
-  UserRound,
 } from 'lucide-react'
 import { Brand } from '../../components/branding/BrandMarks'
 import { ThemeControl } from '../../components/ui/ThemeControl'
 import {
-  ApiError,
   authErrorMessage,
+  unexpectedFailureReference,
 } from '../../api/client'
 
 type LoginProps = {
@@ -23,6 +23,7 @@ export function Login({ onLogin, notice }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [forgotOpen, setForgotOpen] = useState(false)
   const inFlight = useRef(false)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -64,7 +65,7 @@ export function Login({ onLogin, notice }: LoginProps) {
 
           <p>
             One secure workspace for your care team to manage records,
-            appointments and the moments that matter.
+            admissions and the moments that matter.
           </p>
 
           <div className="login-trust">
@@ -77,10 +78,6 @@ export function Login({ onLogin, notice }: LoginProps) {
 
       <div className="login-form-wrap">
         <div className="login-form">
-          <div className="login-user-icon">
-            <UserRound size={30} aria-hidden="true" />
-          </div>
-
           <p className="eyebrow">Welcome back</p>
 
           <h1>Sign in to your workspace</h1>
@@ -144,7 +141,8 @@ export function Login({ onLogin, notice }: LoginProps) {
                 id="login-error" className="auth-error"
               >
                 {authErrorMessage(error)}
-                {error instanceof ApiError && error.requestId && <p>Support reference: {error.requestId}</p>}
+                {/* A wrong password is an expected answer; a reference is only useful for an unexpected failure. */}
+                {unexpectedFailureReference(error) && <p>Support reference: {unexpectedFailureReference(error)}</p>}
               </div>
             )}
 
@@ -157,9 +155,15 @@ export function Login({ onLogin, notice }: LoginProps) {
             </button>
           </form>
 
-          <div className="login-footer">
-            <p>
-              Staff access is managed by your hospital administrator.
+          {/* Guidance only: no request is sent and nothing reveals whether an account exists. */}
+          <div className="login-forgot">
+            <button type="button" className="button-link" aria-expanded={forgotOpen} aria-controls="login-forgot-note"
+              onClick={() => setForgotOpen((open) => !open)}>
+              Forgot your password?
+            </button>
+            <p id="login-forgot-note" className="login-forgot-note" role="note" hidden={!forgotOpen}>
+              <KeyRound size={18} aria-hidden="true" />
+              <span>Contact your system administrator to reset your password.</span>
             </p>
           </div>
         </div>

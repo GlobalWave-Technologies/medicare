@@ -56,9 +56,15 @@ function cookieFrom(response: request.Response) {
   return cookies[0]
 }
 
-function safeUser(value: object) {
-  expect(Object.keys(value).sort()).toEqual(['id', 'staffNumber', 'firstName', 'lastName', 'email', 'role', 'status'].sort())
+// The directory list and detail also say when the person last signed in and last used the system.
+function safeUser(value: object, directory = false) {
+  expect(Object.keys(value).sort()).toEqual(['id', 'staffNumber', 'firstName', 'lastName', 'email', 'role', 'status', ...(directory ? ['lastLoginAt', 'lastActivityAt'] : [])].sort())
   expect(JSON.stringify(value)).not.toContain(password)
+}
+// The signed-in identity adds exactly one safe credential-state flag to the staff fields.
+function safeIdentity(value: object) {
+  expect(Object.keys(value).sort()).toEqual(['id', 'staffNumber', 'firstName', 'lastName', 'email', 'role', 'status', 'mustChangePassword'].sort())
+  expect(typeof (value as { mustChangePassword: unknown }).mustChangePassword).toBe('boolean')
 }
 
 beforeAll(async () => {
@@ -87,7 +93,7 @@ describe('staff authentication', () => {
     const user = await staff()
     const response = await login(` ${user.email.toUpperCase()} `)
     expect(response.status).toBe(200)
-    safeUser(response.body.data.user)
+    safeIdentity(response.body.data.user)
     const cookie = cookieFrom(response)
     expect(cookie).toContain('HttpOnly')
     expect(cookie).toContain('SameSite=Strict')
@@ -111,7 +117,7 @@ describe('staff authentication', () => {
     const response = await login(user.email)
     expect(response.status).toBe(200)
     expect(cookieFrom(response)).toContain('Secure')
-    safeUser(response.body.data.user)
+    safeIdentity(response.body.data.user)
     expect(response.headers['cache-control']).toBe('no-store')
   })
 
@@ -155,7 +161,7 @@ describe('staff authentication', () => {
     expect(response.status).toBe(200)
     expect(response.body.data.user.id).toBe(user.id)
     expect(response.body.data.user.role).toBe('DOCTOR_IN_CHARGE')
-    safeUser(response.body.data.user)
+    safeIdentity(response.body.data.user)
   })
 
   it.each(['missing', 'malformed', 'duplicate', 'unknown', 'expired', 'revoked', 'SUSPENDED', 'DISABLED'] as const)('rejects %s session', async (scenario) => {
@@ -281,6 +287,8 @@ describe('staff authorization and provisioning', () => {
     const saved = await db.staffUser.findUniqueOrThrow({ where: { id: response.body.data.user.id } })
     expect(await verifyPassword(password, saved.passwordHash!)).toBe(true)
     expect(saved.passwordChangedAt).toBeInstanceOf(Date)
+    // The administrator chose this password, so the person must replace it at first sign-in.
+    expect(saved.mustChangePassword).toBe(true)
     const event = await db.auditEvent.findFirstOrThrow({ where: { entityId: saved.id, action: 'STAFF_CREATED' } })
     expect(event.actorId).toBe(adminId)
     expect(event.requestId).toBe(response.headers['x-request-id'])
@@ -312,10 +320,10 @@ describe('staff authorization and provisioning', () => {
     expect(response.status).toBe(200)
     expect(response.body.data.pagination).toEqual({ page: 1, limit: 2, total: 1 })
     expect(response.body.data.users).toHaveLength(1)
-    safeUser(response.body.data.users[0])
+    safeUser(response.body.data.users[0], true)
     const detail = await request(app).get(`/api/v1/staff/${adminId}`).set('Cookie', auth.cookie)
     expect(detail.status).toBe(200)
-    safeUser(detail.body.data.user)
+    safeUser(detail.body.data.user, true)
     const defaults = await request(app).get('/api/v1/staff').set('Cookie', auth.cookie)
     expect(defaults.body.data.pagination).toMatchObject({ page: 1, limit: 20 })
   })

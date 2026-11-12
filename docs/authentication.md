@@ -32,7 +32,19 @@ sign-in after a self change ends the current session. See the
     (`SELF_PASSWORD_RESET`; use Change password).
 - **Policy and handling:** both use the same 15–128 character policy and Argon2id. No password,
   confirmation or digest is returned, logged or audited.
-- **Not available:** an emailed reset link or self-service recovery.
+- **Temporary passwords (Step 18.1):**
+  - **Which passwords:** an administrator-issued password (a new account, a reset or a pending
+    account's first password) sets `StaffUser.mustChangePassword`.
+  - **What it allows:** such a password signs in, but every route except `GET /auth/me`,
+    `GET /auth/csrf`, `POST /auth/change-password`, `/auth/logout` and `/auth/logout-all` returns
+    `403 PASSWORD_CHANGE_REQUIRED` until the person changes it.
+  - **Clearing it:** the change clears the flag in the same transaction that replaces the password
+    and revokes every session.
+  - **The identity:** sign-in and `/auth/me` include the boolean `mustChangePassword`.
+  - **Exemptions:** existing accounts and the bootstrap administrator are not affected.
+  - See [first-login security](first-login-security.md).
+- **Not available:** an emailed reset link or self-service recovery. **Forgot your password?** on the
+  sign-in page tells staff to contact their system administrator and sends nothing.
 
 See [production security hardening](production-security-hardening.md).
 
@@ -51,6 +63,12 @@ continue to use salted, deliberately expensive Argon2id. No password rehash
 strategy is introduced. Sessions expire after **eight hours**, without sliding
 renewal, and multiple simultaneous sessions are supported. Expired/revoked rows
 never authenticate and may later be removed under an explicit retention policy.
+
+Since Phase 19D each session also records `lastActivityAt`, and each staff account the same
+(alongside `lastLoginAt`): updated when a signed-in request is made, at most once a minute per
+session, never for requests marked `X-Background-Refresh: 1` (a page's own timed refresh), and
+only as a time. It never extends a session. Administrators read it in
+[Staff Activity](staff-activity-monitoring.md) and can end one session or every session.
 
 The raw authentication token is issued only in the `medicare_session` cookie:
 
@@ -155,9 +173,9 @@ initial password; `passwordChangedAt` records this provisioning time. Passwords
 are neither returned nor logged. Secure delivery of the initial password remains
 an operational responsibility. Creation accepts an `Idempotency-Key`: an identical resend by the
 same administrator returns the original account (see [mutation idempotency](idempotency.md)).
-Administrators can reset passwords and set a pending account's first password (above). Forced
-password change, self-service recovery, email verification and MFA are not implemented or
-implied. The out-of-band CLI remains
+Administrators can reset passwords and set a pending account's first password (above). Every
+administrator-issued password is temporary and must be replaced at the next sign-in.
+Self-service recovery, email verification and MFA are not implemented or implied. The out-of-band CLI remains
 the sole first-admin bootstrap mechanism; there is no public registration API.
 
 List defaults: `page=1&limit=20`; limit 1-100 and page 1-100000. Optional exact

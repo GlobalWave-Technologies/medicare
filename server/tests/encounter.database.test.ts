@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { Writable } from 'node:stream'
 import request from 'supertest'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,13 +8,17 @@ import { createLogger } from '../src/shared/logger/logger.js'
 import { hashPassword } from '../src/shared/security/password.js'
 import { createSession } from '../src/modules/auth/session.service.js'
 import { isolatedTestEnvironment, testDatabase } from './helpers/database.js'
-import type { StaffRole, Prisma, AppointmentStatus } from '../src/generated/prisma/client.js'
+import type { StaffRole, Prisma } from '../src/generated/prisma/client.js'
 const db = testDatabase(), env = isolatedTestEnvironment(), base = '/api/v1/encounters'
 type Actor = { id: string; cookie: string; csrf: string; sessionId: string }
 const actors = new Map<StaffRole, Actor>()
-let hash: string, logs = '', slot = 0
+let hash: string, logs = ''
 let app: ReturnType<typeof createApp>
 const actor = (role: StaffRole = 'DOCTOR_IN_CHARGE') => actors.get(role)!
+// Orders name entries of the seeded catalog; the order keeps the catalog name as "medicine".
+const catalog = new Map<string, string>()
+const medicine = (name: string) => catalog.get(name)!
+const nameOf = (id: string) => [...catalog].find(([, value]) => value === id)![0]
 async function newActor(role: StaffRole = 'DOCTOR_IN_CHARGE'): Promise<Actor> {
   const user = await db.staffUser.create({ data: { firstName: 'Synthetic', lastName: 'Clinical', email: `${randomUUID()}@example.test`,
     role, status: 'ACTIVE', passwordHash: hash, passwordChangedAt: new Date() } })
@@ -24,35 +28,50 @@ async function newActor(role: StaffRole = 'DOCTOR_IN_CHARGE'): Promise<Actor> {
 async function patient() {
   return db.patient.create({ data: { firstName: 'Synthetic', lastName: `Clinical-${randomUUID()}`, phone: '+233241234567', createdById: actor('ADMIN').id } })
 }
+// Every new clinical record belongs to a current admission; the patient comes from it.
+const patientOf = new Map<string, string>()
+async function admitted(room = 'Ward A - Bed 6') {
+  const person = await patient(), admittedAt = new Date(Date.now() - 2 * 3600000)
+  const admission = await db.admission.create({ data: { patientId: person.id, roomNumber: room, admittedAt, admittedById: actor('ADMIN').id,
+    rooms: { create: { roomNumber: room, assignedAt: admittedAt, assignedById: actor('ADMIN').id } } } })
+  patientOf.set(admission.id, person.id)
+  return admission
+}
+async function discharge(admissionId: string, who = actor()) {
+  const at = new Date()
+  await db.$transaction([
+    db.admissionRoomHistory.updateMany({ where: { admissionId, endedAt: null }, data: { endedAt: at } }),
+    db.admission.update({ where: { id: admissionId }, data: { status: 'DISCHARGED', dischargedAt: at, dischargedById: who.id } }),
+  ])
+}
 async function input() {
-  return { patientId: (await patient()).id, occurredAt: new Date(Date.now() - 60000).toISOString(),
+  return { admissionId: (await admitted()).id, occurredAt: new Date(Date.now() - 60000).toISOString(),
     clinicalNotes: 'Private clinical narrative', historySummary: 'Private history', treatmentPlan: 'Private plan',
-    complaints: [{ description: 'Private complaint' }], diagnoses: [{ description: 'Private diagnosis', code: 'Local-1', notes: 'Private diagnostic notes' }] }
+    complaints: [{ description: 'Private complaint' }], diagnoses: [{ description: 'Private diagnosis', code: 'Local-1', notes: 'Private diagnostic notes' }],
+    medications: [{ medicationId: medicine('Paracetamol'), strength: '500 mg', dose: '1 tablet', route: 'Oral', frequency: 'Twice daily', duration: '5 days',
+      notes: 'Private medication notes' }] }
 }
 function send(method: 'post' | 'patch' | 'delete', path: string, body?: object, who = actor()) {
   const call = request(app)[method](path).set('Cookie', who.cookie).set('Origin', env.CLIENT_ORIGIN).set('X-CSRF-Token', who.csrf)
   return body ? call.send(body) : call
 }
 const read = (path: string, who = actor()) => request(app).get(path).set('Cookie', who.cookie)
-async function seed(who = actor(), overrides: Partial<Prisma.EncounterUncheckedCreateInput> = {}) {
-  const body = await input()
-  return db.encounter.create({ data: { patientId: body.patientId, clinicianId: who.id, createdById: who.id,
+// Seeds a record directly. By default it is a draft on a current admission; legacy = true makes a
+// record from before admissions existed (no admission), as kept in upgraded databases.
+async function seed(who = actor(), overrides: Partial<Prisma.EncounterUncheckedCreateInput> = {}, legacy = false) {
+  const body = await input(), patientId = legacy ? (await patient()).id : patientOf.get(body.admissionId)!
+  return db.encounter.create({ data: { patientId, admissionId: legacy ? null : body.admissionId, clinicianId: who.id, createdById: who.id,
     occurredAt: body.occurredAt, clinicalNotes: body.clinicalNotes, ...overrides,
-    complaints: { create: body.complaints }, diagnoses: { create: body.diagnoses } } })
+    complaints: { create: body.complaints }, diagnoses: { create: body.diagnoses },
+    medications: { create: body.medications.map((order) => ({ ...order, medicine: nameOf(order.medicationId) })) } } })
 }
-async function reviewed(who = actor()) {
-  const value = await seed(who)
+async function reviewed(who = actor(), legacy = false) {
+  const value = await seed(who, {}, legacy)
   return db.encounter.update({ where: { id: value.id }, data: { status: 'REVIEWED', reviewedAt: new Date() } })
 }
-async function appointment(patientId: string, who = actor(), status: AppointmentStatus = 'CHECKED_IN') {
-  const start = Date.now() - (++slot * 3600000)
-  return db.appointment.create({ data: { patientId, clinicianId: who.id, type: 'CONSULTATION', status, createdById: actor('ADMIN').id,
-    scheduledStart: new Date(start), scheduledEnd: new Date(start + 1800000),
-    ...(status === 'CANCELLED' ? { cancelledAt: new Date(), cancelledById: actor('ADMIN').id } : {}) } })
-}
 function dto(value: Record<string, unknown>, detail: boolean) {
-  const keys = ['id', 'reference', 'status', 'occurredAt', 'reviewedAt', 'createdAt', 'patient', 'clinician', 'author', 'appointment', 'diagnoses']
-  if (detail) keys.push('roomLabel', 'historySummary', 'clinicalNotes', 'treatmentPlan', 'followUpAt', 'updatedAt', 'voidedAt', 'voidReason', 'complaints', 'amendments')
+  const keys = ['id', 'reference', 'status', 'occurredAt', 'reviewedAt', 'createdAt', 'patient', 'clinician', 'author', 'admission', 'appointment', 'diagnoses']
+  if (detail) keys.push('roomLabel', 'historySummary', 'clinicalNotes', 'treatmentPlan', 'followUpAt', 'updatedAt', 'voidedAt', 'voidReason', 'complaints', 'medications', 'amendments')
   expect(Object.keys(value).sort()).toEqual(keys.sort())
   expect(Object.keys(value.patient as object).sort()).toEqual(['id', 'patientNumber', 'firstName', 'middleName', 'lastName'].sort())
   expect(Object.keys(value.author as object).sort()).toEqual(['id', 'staffNumber', 'firstName', 'lastName'].sort())
@@ -63,11 +82,24 @@ async function audited(response: request.Response, action: string, id: string, w
   expect(events).toHaveLength(1)
   expect(events[0]).toMatchObject({ action, actorId: who.id, entityId: id })
   expect(events[0]!.ipAddress).not.toBeNull()
-  expect(JSON.stringify(events[0]!.metadata)).not.toMatch(/Private|Synthetic|Correction/)
+  expect(JSON.stringify(events[0]!.metadata)).not.toMatch(/Private|Synthetic|Correction|mg|Oral/)
+  return events[0]!
+}
+// Waits until another request in this database is blocked on a lock (advisory or row).
+async function waitForLock() {
+  const deadline = Date.now() + 2000
+  let waiting = false
+  while (!waiting && Date.now() < deadline) {
+    const rows = await db.$queryRaw<Array<{ waiting: boolean }>>`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock') AS waiting`
+    waiting = rows[0]!.waiting
+    if (!waiting) await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  expect(waiting).toBe(true)
 }
 beforeAll(async () => {
   hash = await hashPassword('Synthetic clinical test passphrase')
   for (const role of ['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const) actors.set(role, await newActor(role))
+  for (const entry of await db.medication.findMany()) catalog.set(entry.name, entry.id)
   await db.$executeRawUnsafe(`CREATE FUNCTION test_reject_clinical_audit() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN IF NEW."requestId" = 'fail-clinical-audit' THEN RAISE EXCEPTION 'private clinical SQL'; END IF; RETURN NEW; END $$`)
   await db.$executeRawUnsafe(`CREATE TRIGGER test_clinical_audit_failure BEFORE INSERT ON "AuditEvent" FOR EACH ROW EXECUTE FUNCTION test_reject_clinical_audit()`)
@@ -82,7 +114,7 @@ afterAll(disconnectDatabase)
 describe('clinical authorization', () => {
   const id = randomUUID()
   const routes = [['get', base], ['get', `${base}/${id}`], ['post', base], ['patch', `${base}/${id}`],
-    ['post', `${base}/${id}/finalize`], ['post', `${base}/${id}/amend`], ['get', `/api/v1/patients/${id}/encounters`]] as const
+    ['post', `${base}/${id}/finalize`], ['post', `${base}/${id}/amend`], ['get', `/api/v1/patients/${id}/encounters`], ['get', `/api/v1/patients/${id}/medications`]] as const
   it.each(routes)('rejects anonymous %s %s', async (method, path) => expect((await request(app)[method](path)).status).toBe(401))
   for (const role of ['ADMIN', 'RECORDS_OFFICER'] as const) {
     it.each(routes)(`denies ${role} %s %s`, async (method, path) => {
@@ -96,6 +128,7 @@ describe('clinical authorization', () => {
     expect((await read(`${base}/${value.id}`, who)).status).toBe(200)
     expect((await read(`${base}?patientId=${value.patientId}`, who)).body.data.items).toHaveLength(1)
     expect((await read(`/api/v1/patients/${value.patientId}/encounters`, who)).status).toBe(200)
+    expect((await read(`/api/v1/patients/${value.patientId}/medications`, who)).status).toBe(200)
     for (const operation of ['update', 'finalize', 'amend']) {
       const path = `${base}/${value.id}${operation === 'update' ? '' : `/${operation}`}`
       const response = await send(operation === 'update' ? 'patch' : 'post', path, operation === 'update' ? { clinicalNotes: 'change' }
@@ -114,32 +147,52 @@ describe('clinical authorization', () => {
     expect((await read(`${base}/${value.id}`)).body.data.encounter.clinician.id).toBe(who.id)
   })
 })
-describe('clinical creation and appointment links', () => {
-  it('creates an authored draft with structured children, generated reference and atomic audit', async () => {
+describe('clinical creation on a current admission', () => {
+  it('creates an authored draft on the admission with structured children, generated reference and atomic audit', async () => {
     const body = await input(), response = await send('post', base, body)
     expect(response.status).toBe(201)
     const value = response.body.data.encounter
     dto(value, true)
-    expect(value).toMatchObject({ status: 'DRAFT', reviewedAt: null, appointment: null, clinician: { id: actor().id }, author: { id: actor().id } })
+    const admission = await db.admission.findUniqueOrThrow({ where: { id: body.admissionId } })
+    expect(value).toMatchObject({ status: 'DRAFT', reviewedAt: null, appointment: null, clinician: { id: actor().id }, author: { id: actor().id },
+      admission: { id: admission.id, admissionNumber: admission.admissionNumber }, patient: { id: patientOf.get(body.admissionId) } })
     expect(value.reference).toMatch(/^MR-[0-9A-F-]{36}$/)
     expect(value.complaints[0].description).toBe(body.complaints[0]!.description)
     expect(value.diagnoses[0]).toMatchObject(body.diagnoses[0]!)
-    await audited(response, 'MEDICAL_RECORD_CREATED', value.id)
+    expect(value.medications).toHaveLength(1)
+    expect(value.medications[0]).toMatchObject({ ...body.medications[0]!, medicine: 'Paracetamol' })
+    expect(Object.keys(value.medications[0]).sort()).toEqual(['id', 'medicationId', 'medicine', 'strength', 'dose', 'route', 'frequency', 'duration', 'notes', 'createdAt'].sort())
+    const event = await audited(response, 'MEDICAL_RECORD_CREATED', value.id)
+    expect(event.metadata).toEqual({ source: 'API', changedFields: ['medications'] })
     expect((await db.encounter.findUniqueOrThrow({ where: { id: value.id } })).createdById).toBe(actor().id)
   })
-  it('supports walk-ins with server time and empty optional arrays', async () => {
-    const before = Date.now(), response = await send('post', base, { patientId: (await patient()).id, complaints: [], diagnoses: [] })
-    expect(response.status).toBe(201)
-    expect(Date.parse(response.body.data.encounter.occurredAt)).toBeGreaterThanOrEqual(before)
-    expect(response.body.data.encounter).toMatchObject({ appointment: null, complaints: [], diagnoses: [], clinicalNotes: null })
+  it('records the admission room by default; a stated or cleared room is kept', async () => {
+    const { admissionId } = await input(), room = (await db.admission.findUniqueOrThrow({ where: { id: admissionId } })).roomNumber
+    const defaulted = await send('post', base, { admissionId, complaints: [], diagnoses: [], medications: [] })
+    expect(defaulted.status).toBe(201)
+    expect(defaulted.body.data.encounter).toMatchObject({ roomLabel: room, appointment: null, complaints: [], diagnoses: [], medications: [], clinicalNotes: null })
+    expect((await audited(defaulted, 'MEDICAL_RECORD_CREATED', defaulted.body.data.encounter.id)).metadata).toEqual({ source: 'API' })
+    expect((await send('post', base, { admissionId, roomLabel: 'Treatment room 2' })).body.data.encounter.roomLabel).toBe('Treatment room 2')
+    expect((await send('post', base, { admissionId, roomLabel: null })).body.data.encounter.roomLabel).toBeNull()
   })
-  it.each(['clinicianId', 'createdById', 'receivedById', 'reference', 'recordReference', 'author', 'status', 'reviewedAt', 'finalizedAt', 'createdAt', 'updatedAt', 'voidedAt', 'amendments', 'patient'])(
+  it('uses server time when no encounter time is given', async () => {
+    const before = Date.now(), response = await send('post', base, { admissionId: (await admitted()).id })
+    expect(Date.parse(response.body.data.encounter.occurredAt)).toBeGreaterThanOrEqual(before)
+  })
+  it.each(['patientId', 'appointmentId', 'clinicianId', 'createdById', 'receivedById', 'reference', 'recordReference', 'author', 'status', 'reviewedAt', 'finalizedAt', 'createdAt', 'updatedAt', 'voidedAt', 'amendments', 'patient', 'admission'])(
     'rejects injected creation field %s', async (field) => expect((await send('post', base, { ...await input(), [field]: 'injected' })).status).toBe(400))
-  it.each(['missing', 'archived'])('rejects %s patient', async (kind) => {
+  it('requires an admission: a record without one is refused', async () => {
+    const response = await send('post', base, { clinicalNotes: 'Private walk-in narrative' })
+    expect(response.status).toBe(400)
+    expect(await db.encounter.count({ where: { clinicalNotes: 'Private walk-in narrative' } })).toBe(0)
+  })
+  it.each(['missing', 'discharged'] as const)('rejects a %s admission without writing', async (kind) => {
     const body = await input()
-    if (kind === 'missing') body.patientId = randomUUID()
-    else await db.patient.update({ where: { id: body.patientId }, data: { archivedAt: new Date() } })
-    expect((await send('post', base, body)).body.error.code).toBe(kind === 'missing' ? 'PATIENT_NOT_FOUND' : 'PATIENT_ARCHIVED')
+    if (kind === 'missing') body.admissionId = randomUUID()
+    else await discharge(body.admissionId)
+    const response = await send('post', base, body)
+    expect([response.status, response.body.error.code]).toEqual(kind === 'missing' ? [404, 'ADMISSION_NOT_FOUND'] : [409, 'ADMISSION_NOT_CURRENT'])
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(0)
   })
   it.each(['noZone', 'future', 'followUpBefore', 'invalidDate'])('rejects invalid encounter time %s', async (kind) => {
     const body = await input()
@@ -153,28 +206,35 @@ describe('clinical creation and appointment links', () => {
     expect(response.body.data.encounter.occurredAt).toBe('2020-01-01T08:00:00.000Z')
     expect(Date.parse(response.body.data.encounter.createdAt)).toBeGreaterThan(Date.parse(response.body.data.encounter.occurredAt))
   })
-  it.each(['CHECKED_IN', 'COMPLETED', 'SCHEDULED', 'CONFIRMED', 'NO_SHOW', 'CANCELLED'] as const)('enforces linking state %s', async (status) => {
-    const body = await input(), linked = await appointment(body.patientId, actor(), status)
-    const response = await send('post', base, { ...body, appointmentId: linked.id })
-    expect(response.status).toBe(['CHECKED_IN', 'COMPLETED'].includes(status) ? 201 : 409)
-  })
-  it.each(['missing', 'wrongPatient', 'otherDoctor'])('rejects %s appointment link', async (kind) => {
-    const body = await input(), linked = await appointment(kind === 'wrongPatient' ? (await patient()).id : body.patientId, kind === 'otherDoctor' ? await newActor() : actor())
-    const response = await send('post', base, { ...body, appointmentId: kind === 'missing' ? randomUUID() : linked.id })
-    expect(response.body.error.code).toBe(kind === 'missing' ? 'APPOINTMENT_NOT_FOUND' : 'APPOINTMENT_NOT_ELIGIBLE_FOR_ENCOUNTER')
-  })
-  it('permits only one encounter for concurrent attempts against an appointment', async () => {
-    const body = await input(), linked = await appointment(body.patientId)
-    const responses = await Promise.all([send('post', base, { ...body, appointmentId: linked.id }), send('post', base, { ...body, appointmentId: linked.id })])
-    expect(responses.map((r) => r.status).sort()).toEqual([201, 409])
-    expect(responses.find((r) => r.status === 409)!.body.error.code).toBe('APPOINTMENT_ALREADY_HAS_ENCOUNTER')
-    expect(await db.encounter.count({ where: { appointmentId: linked.id } })).toBe(1)
-    await expect(db.encounter.create({ data: { patientId: body.patientId, appointmentId: linked.id, clinicianId: actor().id, createdById: actor().id } })).rejects.toMatchObject({ code: 'P2002' })
-  })
-  it('keeps concurrent walk-in references unique', async () => {
+  it('allows several records on one admission and keeps concurrent references unique', async () => {
     const body = await input(), responses = await Promise.all(Array.from({ length: 5 }, () => send('post', base, body)))
     expect(responses.map((r) => r.status)).toEqual(Array(5).fill(201))
     expect(new Set(responses.map((r) => r.body.data.encounter.reference)).size).toBe(5)
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(5)
+  })
+  it('an open draft blocks discharge; a record queued behind a discharge is refused', async () => {
+    // Record first: the open draft blocks the discharge (API check and trigger).
+    const first = await input(), created = await send('post', base, first)
+    expect(created.status).toBe(201)
+    const refused = await send('post', `/api/v1/admissions/${first.admissionId}/discharge`, {})
+    expect([refused.status, refused.body.error.code]).toEqual([409, 'ADMISSION_HAS_DRAFT_RECORDS'])
+    // Discharge first: a record queued on the admission row then finds it discharged.
+    const second = await input()
+    let release!: () => void, ready!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve }), locked = new Promise<void>((resolve) => { ready = resolve })
+    const blocker = db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Admission" WHERE id = ${second.admissionId}::uuid FOR UPDATE`
+      ready(); await gate
+      const at = new Date()
+      await tx.admissionRoomHistory.updateMany({ where: { admissionId: second.admissionId, endedAt: null }, data: { endedAt: at } })
+      await tx.admission.update({ where: { id: second.admissionId }, data: { status: 'DISCHARGED', dischargedAt: at, dischargedById: actor().id } })
+    })
+    await locked
+    const pending = send('post', base, second).then((response) => response)
+    try { await waitForLock() } finally { release() }
+    await blocker
+    expect((await pending).body.error.code).toBe('ADMISSION_NOT_CURRENT')
+    expect(await db.encounter.count({ where: { admissionId: second.admissionId } })).toBe(0)
   })
 })
 describe('draft editing and finalization', () => {
@@ -190,6 +250,20 @@ describe('draft editing and finalization', () => {
     const cleared = await send('patch', `${base}/${value.id}`, { complaints: [], diagnoses: [], clinicalNotes: null })
     expect(cleared.status).toBe(200)
     expect(cleared.body.data.encounter).toMatchObject({ complaints: [], diagnoses: [], clinicalNotes: null })
+  })
+  it('replaces medication orders as a set while the record is a draft, auditing the medication change', async () => {
+    const value = await seed()
+    const orders = [{ medicationId: medicine('Ibuprofen'), strength: '400 mg', dose: '1 tablet', route: 'Oral', frequency: 'Once daily', duration: '7 days' },
+      { medicationId: medicine('ORS'), dose: '1 sachet', route: 'Oral', frequency: 'After each loose stool' }]
+    const response = await send('patch', `${base}/${value.id}`, { medications: orders })
+    expect(response.status).toBe(200)
+    expect(response.body.data.encounter.medications.map((item: { medicine: string }) => item.medicine)).toEqual(['Ibuprofen', 'ORS'])
+    expect(response.body.data.encounter.medications[1]).toMatchObject({ medicationId: medicine('ORS'), strength: null, duration: null, notes: null })
+    expect((await audited(response, 'MEDICAL_RECORD_UPDATED', value.id)).metadata).toEqual({ source: 'API', changedFields: ['clinicalRecord', 'medications'] })
+    const notes = await send('patch', `${base}/${value.id}`, { clinicalNotes: 'Private revised notes' })
+    expect(notes.body.data.encounter.medications).toHaveLength(2)
+    expect((await audited(notes, 'MEDICAL_RECORD_UPDATED', value.id)).metadata).toEqual({ source: 'API', changedFields: ['clinicalRecord'] })
+    expect((await send('patch', `${base}/${value.id}`, { medications: [] })).body.data.encounter.medications).toEqual([])
   })
   it('keeps complaints and diagnoses in entered order through create, replacement and finalization', async () => {
     const body = await input()
@@ -208,10 +282,10 @@ describe('draft editing and finalization', () => {
     const detail = (await read(`${base}/${id}`)).body.data.encounter
     expect(names(detail.complaints)).toEqual(names(complaints))
     expect(names(detail.diagnoses)).toEqual(names(reordered))
-    const summary = (await read(`${base}?patientId=${body.patientId}`)).body.data.items[0]
+    const summary = (await read(`${base}?patientId=${patientOf.get(body.admissionId)}`)).body.data.items[0]
     expect(names(summary.diagnoses)).toEqual(names(reordered))
   })
-  it.each(['patientId', 'clinicianId', 'createdById', 'receivedById', 'appointmentId', 'reference', 'status', 'reviewedAt', 'createdAt', 'updatedAt', 'id', 'amendments'])(
+  it.each(['patientId', 'clinicianId', 'createdById', 'receivedById', 'appointmentId', 'admissionId', 'reference', 'status', 'reviewedAt', 'createdAt', 'updatedAt', 'id', 'amendments'])(
     'rejects protected draft field %s', async (field) => {
       const value = await seed()
       expect((await send('patch', `${base}/${value.id}`, { [field]: randomUUID() })).status).toBe(400)
@@ -223,34 +297,37 @@ describe('draft editing and finalization', () => {
     expect((await send('patch', `${base}/${value.id}`, { complaints: [{ description: 'Same' }, { description: ' Same ' }] })).status).toBe(400)
     expect(await db.encounterComplaint.count({ where: { encounterId: value.id } })).toBe(1)
   })
-  it('finalizes as REVIEWED with signing time and leaves appointment status explicit', async () => {
-    const body = await input(), linked = await appointment(body.patientId)
-    const created = await send('post', base, { ...body, appointmentId: linked.id }), id = created.body.data.encounter.id
+  it('finalizes as REVIEWED with signing time and leaves the admission unchanged', async () => {
+    const body = await input()
+    const created = await send('post', base, body), id = created.body.data.encounter.id
     const before = Date.now(), response = await send('post', `${base}/${id}/finalize`, {})
     expect(response.status).toBe(200)
     expect(response.body.data.encounter.status).toBe('REVIEWED')
     expect(Date.parse(response.body.data.encounter.reviewedAt)).toBeGreaterThanOrEqual(before)
+    expect(response.body.data.encounter.medications).toHaveLength(1)
     await audited(response, 'MEDICAL_RECORD_FINALIZED', id)
-    expect((await db.appointment.findUniqueOrThrow({ where: { id: linked.id } })).status).toBe('CHECKED_IN')
+    expect((await db.admission.findUniqueOrThrow({ where: { id: body.admissionId } })).status).toBe('ADMITTED')
     expect((await send('post', `${base}/${id}/finalize`, {})).body.error.code).toBe('ENCOUNTER_FINALIZED')
   })
-  it.each(['clinicalNotes', 'historySummary', 'treatmentPlan', 'complaints', 'diagnoses'])('accepts %s as minimum clinical content', async (field) => {
-    const content = field === 'complaints' || field === 'diagnoses' ? [{ description: 'Clinical content' }] : 'Clinical content'
-    const created = await send('post', base, { patientId: (await patient()).id, [field]: content })
+  it.each(['clinicalNotes', 'historySummary', 'treatmentPlan', 'complaints', 'diagnoses', 'medications'])('accepts %s as minimum clinical content', async (field) => {
+    const content = field === 'medications' ? [{ medicationId: medicine('Paracetamol'), dose: '1 tablet', route: 'Oral', frequency: 'Stat' }]
+      : field === 'complaints' || field === 'diagnoses' ? [{ description: 'Clinical content' }] : 'Clinical content'
+    const created = await send('post', base, { admissionId: (await admitted()).id, [field]: content })
     expect((await send('post', `${base}/${created.body.data.encounter.id}/finalize`, {})).status).toBe(200)
   })
   it('rejects empty or not-yet-occurred finalization', async () => {
-    const empty = await send('post', base, { patientId: (await patient()).id, roomLabel: 'Room 1' })
+    const empty = await send('post', base, { admissionId: (await admitted()).id, roomLabel: 'Room 1' })
     expect((await send('post', `${base}/${empty.body.data.encounter.id}/finalize`, {})).body.error.code).toBe('EMPTY_CLINICAL_RECORD')
     const future = await seed(actor(), { occurredAt: new Date(Date.now() + 30000) })
     expect((await send('post', `${base}/${future.id}/finalize`, {})).body.error.code).toBe('INVALID_ENCOUNTER_TIME')
   })
-  it.each([{ clinicalNotes: 'rewrite' }, { complaints: [] }, { diagnoses: [] }])('rejects finalized content replacement %j', async (body) => {
+  it.each([{ clinicalNotes: 'rewrite' }, { complaints: [] }, { diagnoses: [] }, { medications: [] }])('rejects finalized content replacement %j', async (body) => {
     const value = await reviewed()
     expect((await send('patch', `${base}/${value.id}`, body)).body.error.code).toBe('ENCOUNTER_FINALIZED')
   })
   it('keeps archived history readable but blocks draft activity without reactivation', async () => {
-    const value = await seed()
+    // A record from before admissions existed: its patient can be archived while it is a draft.
+    const value = await seed(actor(), {}, true)
     await db.patient.update({ where: { id: value.patientId }, data: { archivedAt: new Date() } })
     expect((await send('patch', `${base}/${value.id}`, { clinicalNotes: 'change' })).body.error.code).toBe('PATIENT_ARCHIVED')
     expect((await send('post', `${base}/${value.id}/finalize`, {})).body.error.code).toBe('PATIENT_ARCHIVED')
@@ -279,7 +356,7 @@ describe('amendments and database history integrity', () => {
     expect((await read(`${base}/${value.id}`)).body.data.encounter.amendments).toHaveLength(2)
   })
   it('allows the original active doctor to correct archived history', async () => {
-    const value = await reviewed()
+    const value = await reviewed(actor(), true)
     await db.patient.update({ where: { id: value.patientId }, data: { archivedAt: new Date() } })
     expect((await send('post', `${base}/${value.id}/amend`, { reason: 'Correction', content: 'Historical correction' })).status).toBe(201)
   })
@@ -308,11 +385,13 @@ describe('amendments and database history integrity', () => {
       expect((await send('post', `${base}/${value.id}/amend`, body)).status).toBe(400)
       expect(await db.encounterAmendment.count({ where: { encounterId: value.id } })).toBe(0)
     })
-  it.each(['parentUpdate', 'parentDelete', 'complaintInsert', 'complaintUpdate', 'complaintDelete', 'diagnosisInsert', 'diagnosisUpdate', 'diagnosisDelete'] as const)(
+  it.each(['parentUpdate', 'parentDelete', 'complaintInsert', 'complaintUpdate', 'complaintDelete', 'diagnosisInsert', 'diagnosisUpdate', 'diagnosisDelete',
+    'medicationInsert', 'medicationUpdate', 'medicationDelete'] as const)(
     'database blocks finalized %s', async (operation) => {
       const value = await reviewed()
       const complaint = await db.encounterComplaint.findFirstOrThrow({ where: { encounterId: value.id } })
       const diagnosis = await db.diagnosis.findFirstOrThrow({ where: { encounterId: value.id } })
+      const medication = await db.medicationOrder.findFirstOrThrow({ where: { encounterId: value.id } })
       const operations = {
         parentUpdate: () => db.encounter.update({ where: { id: value.id }, data: { clinicalNotes: 'rewrite' } }),
         parentDelete: () => db.encounter.delete({ where: { id: value.id } }),
@@ -322,6 +401,9 @@ describe('amendments and database history integrity', () => {
         diagnosisInsert: () => db.diagnosis.create({ data: { encounterId: value.id, description: 'rewrite' } }),
         diagnosisUpdate: () => db.diagnosis.update({ where: { id: diagnosis.id }, data: { notes: 'rewrite' } }),
         diagnosisDelete: () => db.diagnosis.delete({ where: { id: diagnosis.id } }),
+        medicationInsert: () => db.medicationOrder.create({ data: { encounterId: value.id, medicationId: medicine('Paracetamol'), medicine: 'Paracetamol' } }),
+        medicationUpdate: () => db.medicationOrder.update({ where: { id: medication.id }, data: { dose: 'rewrite' } }),
+        medicationDelete: () => db.medicationOrder.delete({ where: { id: medication.id } }),
       }
       await expect(operations[operation]()).rejects.toThrow()
       expect(await db.encounter.findUniqueOrThrow({ where: { id: value.id } })).toEqual(value)
@@ -335,9 +417,21 @@ describe('amendments and database history integrity', () => {
     await expect(db.encounterAmendment.create({ data: { ...data, authorId: (await newActor()).id } })).rejects.toThrow()
     expect(await db.encounterAmendment.findUniqueOrThrow({ where: { id: amendment.id } })).toEqual(amendment)
   })
-  it.each(['Encounter', 'EncounterComplaint', 'Diagnosis', 'EncounterAmendment'])('blocks TRUNCATE of %s in the guarded disposable database', async (table) => {
+  it.each(['Encounter', 'EncounterComplaint', 'Diagnosis', 'MedicationOrder', 'EncounterAmendment'])('blocks TRUNCATE of %s in the guarded disposable database', async (table) => {
     await expect(db.$executeRawUnsafe(`TRUNCATE TABLE "${table}" CASCADE`)).rejects.toThrow()
     expect(await db.encounter.count()).toBeGreaterThan(0)
+  })
+  it('database keeps a record on its own patient\'s admission and never moves it', async () => {
+    const value = await seed(), other = await admitted()
+    await expect(db.encounter.create({ data: { patientId: (await patient()).id, admissionId: value.admissionId, createdById: actor().id } })).rejects.toMatchObject({ code: 'P2003' })
+    await expect(db.encounter.update({ where: { id: value.id }, data: { admissionId: other.id, patientId: patientOf.get(other.id) } })).rejects.toThrow()
+    await expect(db.encounter.update({ where: { id: value.id }, data: { admissionId: null } })).rejects.toThrow()
+    expect((await db.encounter.findUniqueOrThrow({ where: { id: value.id } })).admissionId).toBe(value.admissionId)
+  })
+  it('database refuses a new record on a discharged admission even without the API', async () => {
+    const admission = await admitted()
+    await discharge(admission.id)
+    await expect(db.encounter.create({ data: { patientId: patientOf.get(admission.id)!, admissionId: admission.id, createdById: actor().id } })).rejects.toThrow()
   })
   it('does not expose encounter or amendment delete/edit routes', async () => {
     const value = await reviewed(), amendmentId = randomUUID()
@@ -350,7 +444,7 @@ describe('clinical history, DTO and privacy', () => {
   it('paginates deterministically with small summary DTOs and a single history audit', async () => {
     const p = await patient(), ids = [randomUUID(), randomUUID(), randomUUID()].sort()
     const occurredAt = new Date('2020-01-01'), createdAt = new Date('2021-01-01')
-    for (const id of ids) await seed(actor(), { id, patientId: p.id, occurredAt, createdAt })
+    for (const id of ids) await seed(actor(), { id, patientId: p.id, occurredAt, createdAt }, true)
     const response = await read(`/api/v1/patients/${p.id}/encounters?page=2&limit=2`)
     expect(response.status).toBe(200)
     expect(response.body.data.pagination).toEqual({ page: 2, limit: 2, total: 3, totalPages: 2 })
@@ -360,12 +454,11 @@ describe('clinical history, DTO and privacy', () => {
     await audited(response, 'MEDICAL_HISTORY_VIEWED', p.id)
     expect((await read(`/api/v1/patients/${p.id}/encounters?page=9`)).body.data.items).toEqual([])
   })
-  it.each(['patientId', 'clinicianId', 'appointmentId', 'status', 'dateRange', 'reference'] as const)('supports %s filter', async (filter) => {
-    const who = await newActor(), p = await patient(), linked = await appointment(p.id, who)
-    const value = await seed(who, { patientId: p.id, appointmentId: linked.id })
-    const query = new URLSearchParams({ patientId: p.id })
+  it.each(['patientId', 'clinicianId', 'admissionId', 'status', 'dateRange', 'reference'] as const)('supports %s filter', async (filter) => {
+    const who = await newActor(), value = await seed(who)
+    const query = new URLSearchParams({ patientId: value.patientId })
     if (filter === 'clinicianId') query.set('clinicianId', who.id)
-    if (filter === 'appointmentId') query.set('appointmentId', linked.id)
+    if (filter === 'admissionId') query.set('admissionId', value.admissionId!)
     if (filter === 'status') query.set('status', 'DRAFT')
     if (filter === 'dateRange') { query.set('dateFrom', value.occurredAt.toISOString()); query.set('dateTo', value.occurredAt.toISOString()) }
     if (filter === 'reference') query.set('search', value.reference.toLowerCase())
@@ -373,7 +466,14 @@ describe('clinical history, DTO and privacy', () => {
     expect(response.body.data.items.map((v: { id: string }) => v.id)).toEqual([value.id])
     expect(await db.auditEvent.count({ where: { requestId: response.headers['x-request-id'] } })).toBe(0)
   })
-  it.each(['limit=101', 'page=0', 'status=FINALIZED', 'patientId=x', 'clinicianId=x', 'appointmentId=x', 'dateFrom=2020-01-01',
+  it('lists one admission\'s records only', async () => {
+    const value = await seed(), sibling = await seed()
+    const response = await read(`${base}?admissionId=${value.admissionId}`)
+    expect(response.body.data.items.map((v: { id: string }) => v.id)).toEqual([value.id])
+    expect(response.body.data.items[0].admission.id).toBe(value.admissionId)
+    expect(sibling.admissionId).not.toBe(value.admissionId)
+  })
+  it.each(['limit=101', 'page=0', 'status=FINALIZED', 'patientId=x', 'clinicianId=x', 'admissionId=x', `appointmentId=${randomUUID()}`, 'dateFrom=2020-01-01',
     'dateFrom=2021-01-01T00:00:00Z&dateTo=2020-01-01T00:00:00Z', 'clinicalNotes=Private', 'where[status]=DRAFT'])(
     'rejects unsafe query %s', async (query) => expect((await read(`${base}?${query}`)).status).toBe(400))
   it.each(['%', '_', 'Private clinical narrative'])('does not broaden reference search or search notes: %s', async (search) => {
@@ -395,9 +495,47 @@ describe('clinical history, DTO and privacy', () => {
     dto(response.body.data.encounter, true)
     expect(response.body.data.encounter.complaints).toHaveLength(1)
     expect(response.body.data.encounter.diagnoses).toHaveLength(1)
+    expect(response.body.data.encounter.medications).toHaveLength(1)
     await audited(response, 'MEDICAL_RECORD_VIEWED', value.id)
     expect(JSON.stringify(response.body)).not.toMatch(/passwordHash|csrfToken|@example.test|233241234567|auditEvents/)
     expect((await read(`/api/v1/patients/${value.patientId}`, actor('ADMIN'))).body.data.patient).not.toHaveProperty('encounters')
+  })
+})
+describe('medication history', () => {
+  it('lists every order for the patient across records and admissions, newest record first, with one audit', async () => {
+    const first = await seed(actor(), { occurredAt: new Date('2025-01-01T08:00:00Z') })
+    const p = first.patientId, older = await db.admission.findUniqueOrThrow({ where: { id: first.admissionId! } })
+    await db.encounter.update({ where: { id: first.id }, data: { status: 'REVIEWED', reviewedAt: new Date() } })
+    await discharge(older.id)
+    const at = new Date()
+    const readmitted = await db.admission.create({ data: { patientId: p, roomNumber: 'Private Room 3', admittedAt: at, admittedById: actor('ADMIN').id,
+      rooms: { create: { roomNumber: 'Private Room 3', assignedAt: at, assignedById: actor('ADMIN').id } } } })
+    const created = await send('post', base, { admissionId: readmitted.id, medications: [
+      { medicationId: medicine('Multivitamin'), dose: '10 ml', route: 'Oral', frequency: 'Once daily' },
+      { medicationId: medicine('Folic acid'), strength: '5 mg', dose: '1 tablet', route: 'Oral', frequency: 'Once daily' }] })
+    expect(created.status).toBe(201)
+    const response = await read(`/api/v1/patients/${p}/medications`).set('X-Request-Id', 'medication-history')
+    expect(response.status).toBe(200)
+    expect(response.headers['cache-control']).toBe('no-store')
+    const items = response.body.data.items as Array<{ medicine: string; encounter: { id: string; status: string; admission: { admissionNumber: string } } }>
+    expect(items.map((item) => item.medicine)).toEqual(['Multivitamin', 'Folic acid', 'Paracetamol'])
+    expect(items.map((item) => item.encounter.admission.admissionNumber)).toEqual([readmitted.admissionNumber, readmitted.admissionNumber, older.admissionNumber])
+    expect(items.map((item) => item.encounter.status)).toEqual(['DRAFT', 'DRAFT', 'REVIEWED'])
+    expect(Object.keys(items[0]!).sort()).toEqual(['id', 'medicationId', 'medicine', 'strength', 'dose', 'route', 'frequency', 'duration', 'notes', 'createdAt', 'encounter'].sort())
+    expect(Object.keys(items[0]!.encounter).sort()).toEqual(['id', 'reference', 'status', 'occurredAt', 'reviewedAt', 'clinician', 'admission'].sort())
+    expect(Object.keys(items[0]!.encounter.admission).sort()).toEqual(['id', 'admissionNumber', 'status', 'admittedAt', 'dischargedAt'].sort())
+    expect(response.body.data.pagination).toEqual({ page: 1, limit: 20, total: 3, totalPages: 1 })
+    const events = await db.auditEvent.findMany({ where: { requestId: 'medication-history' } })
+    expect(events.map((event) => [event.action, event.entityType, event.entityId, event.metadata])).toEqual([['MEDICAL_HISTORY_VIEWED', 'PATIENT', p, { source: 'API', changedFields: ['medications'] }]])
+    expect((await read(`/api/v1/patients/${p}/medications?page=2&limit=2`)).body.data.items.map((item: { medicine: string }) => item.medicine)).toEqual(['Paracetamol'])
+    expect(JSON.stringify(response.body)).not.toMatch(/233241234567|passwordHash|@example.test/)
+  })
+  it('refuses unknown patients and widening queries', async () => {
+    expect((await read(`/api/v1/patients/${randomUUID()}/medications`)).body.error.code).toBe('PATIENT_NOT_FOUND')
+    const p = (await seed()).patientId
+    for (const query of ['limit=101', 'page=0', `patientId=${randomUUID()}`, 'medicine=Private']) {
+      expect((await read(`/api/v1/patients/${p}/medications?${query}`)).status).toBe(400)
+    }
   })
 })
 describe('clinical CSRF, rollback and logging', () => {
@@ -417,7 +555,7 @@ describe('clinical CSRF, rollback and logging', () => {
       : `${base}/${value.id}${operation === 'finalize' || operation === 'amend' ? `/${operation}` : ''}`
     const beforeChildren = await db.encounterComplaint.findMany({ where: { encounterId: value.id } })
     const call = operation === 'view' || operation === 'history' ? read(path) : send(operation === 'update' ? 'patch' : 'post', path,
-      operation === 'create' ? body : operation === 'update' ? { clinicalNotes: 'Failed change', complaints: [], diagnoses: [] }
+      operation === 'create' ? body : operation === 'update' ? { clinicalNotes: 'Failed change', complaints: [], diagnoses: [], medications: [] }
         : operation === 'amend' ? { reason: 'Correction', content: 'Failed amendment' } : {})
     const response = await call.set('X-Request-Id', 'fail-clinical-audit')
     expect(response.status).toBe(500)
@@ -426,8 +564,9 @@ describe('clinical CSRF, rollback and logging', () => {
     expect(await db.encounter.findUniqueOrThrow({ where: { id: value.id } })).toEqual(value)
     expect(await db.encounterComplaint.findMany({ where: { encounterId: value.id } })).toEqual(beforeChildren)
     expect(await db.diagnosis.count({ where: { encounterId: value.id } })).toBe(1)
+    expect(await db.medicationOrder.count({ where: { encounterId: value.id } })).toBe(1)
     expect(await db.encounterAmendment.count({ where: { encounterId: value.id } })).toBe(0)
-    expect(await db.encounter.count({ where: { patientId: body.patientId } })).toBe(0)
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(0)
     expect(await db.auditEvent.count({ where: { requestId: 'fail-clinical-audit' } })).toBe(0)
   })
   it('keeps clinical bodies, children, amendments and search out of logs and audits', async () => {
@@ -437,7 +576,7 @@ describe('clinical CSRF, rollback and logging', () => {
     await read(`${base}/${id}`)
     await read(`${base}?search=PrivateSearch`)
     const events = await db.auditEvent.findMany({ where: { entityId: id } })
-    expect(logs + JSON.stringify(events)).not.toMatch(/Private|Local-1/)
+    expect(logs + JSON.stringify(events)).not.toMatch(/Private|Local-1|500 mg|Twice daily/)
     const spy = vi.spyOn(db, '$transaction').mockRejectedValueOnce(new Error('private Prisma SQL'))
     try {
       const response = await read(base).set('X-Request-Id', 'clinical-safe-error')
@@ -446,32 +585,21 @@ describe('clinical CSRF, rollback and logging', () => {
       expect(JSON.stringify(response.body) + logs).not.toContain('private Prisma SQL')
     } finally { spy.mockRestore() }
   })
-  it.each(['archived', 'revoked', 'roleChanged'] as const)('rechecks %s after a queued clinical transaction', async (kind) => {
+  it.each(['revoked', 'roleChanged'] as const)('rechecks %s after a queued clinical transaction', async (kind) => {
     const who = await newActor(), body = await input()
     let release!: () => void, ready!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve }), locked = new Promise<void>((resolve) => { ready = resolve })
     const blocker = db.$transaction(async (tx) => {
-      if (kind === 'archived') await tx.$executeRaw`SELECT pg_advisory_xact_lock(1296385106, 2)`
-      else await tx.$executeRaw`SELECT pg_advisory_xact_lock(1296385106, 1)`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(1296385106, 1)`
       ready(); await gate
-      if (kind === 'archived') await tx.patient.update({ where: { id: body.patientId }, data: { archivedAt: new Date() } })
       if (kind === 'revoked') await tx.staffSession.update({ where: { id: who.sessionId }, data: { revokedAt: new Date() } })
       if (kind === 'roleChanged') await tx.staffUser.update({ where: { id: who.id }, data: { role: 'ADMIN' } })
     })
     await locked
     const pending = send('post', base, body, who).then((response) => response)
-    try {
-      const deadline = Date.now() + 2000
-      let waiting = false
-      while (!waiting && Date.now() < deadline) {
-        const rows = await db.$queryRaw<Array<{ waiting: boolean }>>`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event = 'advisory') AS waiting`
-        waiting = rows[0]!.waiting
-        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 20))
-      }
-      expect(waiting).toBe(true)
-    } finally { release() }
+    try { await waitForLock() } finally { release() }
     await blocker
-    expect((await pending).body.error.code).toBe({ archived: 'PATIENT_ARCHIVED', revoked: 'AUTHENTICATION_REQUIRED', roleChanged: 'FORBIDDEN' }[kind])
-    expect(await db.encounter.count({ where: { patientId: body.patientId } })).toBe(0)
+    expect((await pending).body.error.code).toBe({ revoked: 'AUTHENTICATION_REQUIRED', roleChanged: 'FORBIDDEN' }[kind])
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(0)
   })
 })

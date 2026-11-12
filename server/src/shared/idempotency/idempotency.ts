@@ -14,8 +14,8 @@ export interface IdempotencyScope {
   keyHash: string
   requestHash: string
 }
-export type IdempotentResource = { patientId: string } | { encounterId: string } | { notificationId: string } | { staffUserId: string }
-export type StoredResource = { patientId: string | null; encounterId: string | null; notificationId: string | null; staffUserId: string | null }
+export type IdempotentResource = { patientId: string } | { encounterId: string } | { notificationId: string } | { staffUserId: string } | { admissionId: string }
+export type StoredResource = { patientId: string | null; encounterId: string | null; notificationId: string | null; staffUserId: string | null; admissionId: string | null }
 export interface IdempotentResult<T> { value: T; replayed: boolean }
 
 // Sorted keys and dropped undefined values make the fingerprint independent of
@@ -56,7 +56,7 @@ export async function idempotent<T>(tx: Prisma.TransactionClient, scope: Idempot
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(1296385108, hashtext(${`${scope.principalId}:${scope.operation}:${scope.keyHash}`}))`
     const stored = await tx.idempotencyRecord.findUnique({
       where: { principalId_operation_keyHash: { principalId: scope.principalId, operation: scope.operation, keyHash: scope.keyHash } },
-      select: { id: true, requestHash: true, expiresAt: true, patientId: true, encounterId: true, notificationId: true, staffUserId: true },
+      select: { id: true, requestHash: true, expiresAt: true, patientId: true, encounterId: true, notificationId: true, staffUserId: true, admissionId: true },
     })
     if (stored && stored.expiresAt > new Date()) {
       if (stored.requestHash !== scope.requestHash) {

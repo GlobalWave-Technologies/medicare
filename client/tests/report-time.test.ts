@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import { ApiError } from '../src/api/client'
 import { customRange, isRangeProblem, periodLabel, presetRange, rangeDates, rangeDayCount, rangeLabel, utcDate, utcToday } from '../src/features/reports/report-time'
-import { formatRate, labelIndexes, niceTop, reportError, reportKinds } from '../src/features/reports/report-utils'
+import { labelIndexes, niceTop, reportError, reportKinds } from '../src/features/reports/report-utils'
 
 const at = (iso: string) => Date.parse(iso)
 const utc = (value: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(undefined, { timeZone: 'UTC', ...options }).format(Date.parse(`${value}T00:00:00Z`))
@@ -60,16 +60,13 @@ it('shows a server range [from, to) as its inclusive UTC dates', () => {
   expect(rangeLabel({ from: '2026-10-07T00:00:00.000Z', to: '2026-11-06T00:00:00.000Z' })).toBe(`${utc('2026-10-07', { day: 'numeric', month: 'short', year: 'numeric' })} – ${utc('2026-11-05', { day: 'numeric', month: 'short', year: 'numeric' })}`)
   expect(rangeLabel({ from: '2026-11-05T00:00:00.000Z', to: '2026-11-06T00:00:00.000Z' })).toBe(utc('2026-11-05', { day: 'numeric', month: 'short', year: 'numeric' }))
 })
-it('formats server rates as given, with 0% for an empty denominator', () => {
-  expect(formatRate(8.25)).toBe('8.25%'); expect(formatRate(0)).toBe('0%'); expect(formatRate(100)).toBe('100%'); expect(formatRate(33.33)).toBe('33.33%')
-})
 it('chooses whole-number chart scales and at most four axis labels', () => {
   expect([0, 1, 2, 3, 5, 7, 9, 11, 45, 101].map(niceTop)).toEqual([1, 1, 2, 4, 6, 8, 10, 20, 60, 200])
   expect(labelIndexes(0)).toEqual([]); expect(labelIndexes(3)).toEqual([0, 1, 2]); expect(labelIndexes(30)).toEqual([0, 10, 19, 29]); expect(labelIndexes(367)).toEqual([0, 122, 244, 366])
 })
 it('offers only the reports each role may read', () => {
-  expect(reportKinds('ADMIN')).toEqual(['patients', 'appointments']); expect(reportKinds('RECORDS_OFFICER')).toEqual(['patients', 'appointments'])
-  expect(reportKinds('DOCTOR_IN_CHARGE')).toEqual(['clinical'])
+  expect(reportKinds('ADMIN')).toEqual(['patients', 'admissions']); expect(reportKinds('RECORDS_OFFICER')).toEqual(['patients', 'admissions'])
+  expect(reportKinds('DOCTOR_IN_CHARGE')).toEqual([])
 })
 it.each([
   [new ApiError(403, 'Permission denied', 'FORBIDDEN'), 'report', 'You don’t have access to this report.'],

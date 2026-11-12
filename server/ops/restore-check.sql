@@ -13,6 +13,10 @@ SELECT 'table' AS kind, name, rows, digest FROM (
   UNION ALL SELECT 'Encounter', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "Encounter" t
   UNION ALL SELECT 'EncounterComplaint', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "EncounterComplaint" t
   UNION ALL SELECT 'Diagnosis', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "Diagnosis" t
+  UNION ALL SELECT 'MedicationOrder', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "MedicationOrder" t
+  UNION ALL SELECT 'Admission', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "Admission" t
+  UNION ALL SELECT 'AdmissionRoomHistory', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "AdmissionRoomHistory" t
+  UNION ALL SELECT 'Medication', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "Medication" t
   UNION ALL SELECT 'EncounterAmendment', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "EncounterAmendment" t
   UNION ALL SELECT 'Notification', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "Notification" t
   UNION ALL SELECT 'NotificationRecipient', count(*), md5(coalesce(string_agg(t::text, '|' ORDER BY t.id), '')) FROM "NotificationRecipient" t
@@ -21,6 +25,8 @@ SELECT 'table' AS kind, name, rows, digest FROM (
 ) tables
 UNION ALL SELECT 'schema', 'migrations', count(*), md5(coalesce(string_agg(migration_name || ':' || checksum || ':' || (finished_at IS NOT NULL)::text, ',' ORDER BY migration_name), ''))
   FROM _prisma_migrations WHERE rolled_back_at IS NULL
+-- The next admission number must survive a restore, or numbers would be issued twice.
+UNION ALL SELECT 'schema', 'admission_number_seq', last_value, md5(last_value::text || ':' || is_called::text) FROM "admission_number_seq"
 UNION ALL SELECT 'schema', 'triggers', count(*), md5(coalesce(string_agg(c.relname::text || '.' || t.tgname::text || ':' || t.tgenabled::text, ',' ORDER BY c.relname, t.tgname), ''))
   FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND NOT t.tgisinternal

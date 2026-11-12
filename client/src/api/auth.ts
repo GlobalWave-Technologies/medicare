@@ -4,16 +4,20 @@ export type BackendRole = 'ADMIN' | 'RECORDS_OFFICER' | 'DOCTOR_IN_CHARGE'
 export type StaffUser = {
   id: string; staffNumber: string; firstName: string; lastName: string; email: string
   role: BackendRole; status: 'ACTIVE'
+  // True while the account holds a temporary, administrator-issued password. The server refuses
+  // every application route until it is replaced; the client then shows only the change screen.
+  mustChangePassword: boolean
 }
 function userResult(data: unknown): { user: StaffUser } {
   const user = isRecord(data) && isRecord(data.user) ? data.user : {}
   if (typeof user.id !== 'string' || typeof user.staffNumber !== 'string'
     || typeof user.firstName !== 'string' || typeof user.lastName !== 'string' || typeof user.email !== 'string'
-    || !['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'].includes(String(user.role)) || user.status !== 'ACTIVE') {
+    || !['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'].includes(String(user.role)) || user.status !== 'ACTIVE'
+    || typeof user.mustChangePassword !== 'boolean') {
     throw new ApiError(502, 'The server returned an invalid staff identity.', 'INVALID_RESPONSE')
   }
   return { user: { id: user.id, staffNumber: user.staffNumber, firstName: user.firstName,
-    lastName: user.lastName, email: user.email, role: user.role as BackendRole, status: 'ACTIVE' } }
+    lastName: user.lastName, email: user.email, role: user.role as BackendRole, status: 'ACTIVE', mustChangePassword: user.mustChangePassword } }
 }
 async function endSession(path: string) {
   const result = await mutation<{ loggedOut: boolean }>(path, { method: 'POST' })

@@ -3,7 +3,7 @@ import { patientError } from './patient-utils'
 
 // Registration carries an idempotency key, so resubmitting the unchanged open form is safe.
 const unconfirmed = {
-  create: 'The registration could not be confirmed. Select Register patient again without changing anything; the patient will not be registered twice.',
+  create: 'The registration could not be confirmed. Select the same button again without changing anything; the patient will not be registered twice.',
   update: 'The changes could not be confirmed. Select Save changes again, or close this form and check the patient record.',
   status: 'The status change could not be confirmed. Close this and refresh the patient record to check its current status before trying again.',
 }

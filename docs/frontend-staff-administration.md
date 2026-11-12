@@ -311,7 +311,14 @@ request ID appears as "Support reference". No mutation is retried automatically.
     shown again.
   - Disabled accounts and your own account have no action; you use Change password in the menu
     instead.
-  - There is no forced change or MFA.
+  - **Temporary (Step 18.1):** the password an administrator types, at creation or in Reset or Set
+    password, is temporary.
+    - **First sign-in:** the person is held at a "Change your temporary password" screen until
+      they choose their own.
+    - **Server enforcement:** the server refuses everything else meanwhile.
+    - **Staff detail:** the directory and detail views do not show this state.
+    - **More:** see [first-login security](first-login-security.md).
+  - There is no MFA.
 - **Initial password delivery:** the administrator types it and must deliver it out of
   band.
 - **No timestamps:** the DTO has no created, updated or last sign-in times.

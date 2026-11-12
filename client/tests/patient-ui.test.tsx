@@ -8,11 +8,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { BackendRole } from '../src/api/auth'
 import { ApiError } from '../src/api/client'
 import { patientsApi, type Patient, type PatientPage } from '../src/api/patients'
+import { admissionsApi } from '../src/api/admissions'
+import { admission, admissionPage, discharged, user } from './admission-fixtures'
 import { Patients } from '../src/features/patients/Patients'
 import { PatientModal } from '../src/features/patients/PatientModal'
 import { PatientDetail } from '../src/features/patients/PatientDetail'
 
-const patient: Patient = { id: '11111111-1111-4111-8111-111111111111', patientNumber: 'PT-11111111-1111-4111-8111-111111111111', firstName: 'Amina', middleName: 'Mary Ann', lastName: 'Yusuf', dateOfBirth: '2000-05-10', phone: '+233241234567', archivedAt: null, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z' }
+const patient: Patient = { id: '11111111-1111-4111-8111-111111111111', patientNumber: 'PT-11111111-1111-4111-8111-111111111111', firstName: 'Amina', middleName: 'Mary Ann', lastName: 'Yusuf', dateOfBirth: '2000-05-10', phone: '+233241234567', archivedAt: null, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z', currentAdmission: null }
+const admitted: Patient = { ...patient, currentAdmission: { id: admission.id, admissionNumber: admission.admissionNumber, roomNumber: admission.roomNumber, admittedAt: admission.admittedAt } }
 const page = (items = [patient], current = 1, total = items.length): PatientPage => ({ items, pagination: { page: current, limit: 10, total, totalPages: Math.ceil(total / 10) } })
 let root: Root, host: HTMLDivElement
 beforeEach(() => {
@@ -25,6 +28,7 @@ beforeEach(() => {
   vi.spyOn(patientsApi, 'update').mockResolvedValue({ patient: { ...patient, firstName: 'Updated' } })
   vi.spyOn(patientsApi, 'archive').mockResolvedValue({ patient: { ...patient, archivedAt: '2026-10-28T12:00:00Z' } })
   vi.spyOn(patientsApi, 'reactivate').mockResolvedValue({ patient })
+  vi.spyOn(admissionsApi, 'list').mockResolvedValue(admissionPage([]))
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals() })
 const render = async (node: ReactNode) => { await act(async () => root.render(node)) }
@@ -41,8 +45,9 @@ async function input(selector: string, value: string) {
 }
 const fill = (name: string, value: string) => input(`input[name="${name}"]`, value)
 const submit = async () => { await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }) }
-const directory = (role: BackendRole = 'ADMIN', select = vi.fn()) => <Patients role={role} onAdd={vi.fn()} onSelect={select} />
-const detail = (role: BackendRole = 'ADMIN', initialPatient?: Patient, changed = vi.fn()) => <PatientDetail key={patient.id} id={patient.id} initialPatient={initialPatient} role={role} onBack={vi.fn()} onChanged={changed} />
+const directory = (role: BackendRole = 'ADMIN', select = vi.fn()) => <Patients role={role} onAdd={vi.fn()} onSelect={select} onViewAdmission={vi.fn()} />
+const detail = (role: BackendRole = 'ADMIN', initialPatient?: Patient, changed = vi.fn()) => <PatientDetail key={patient.id} id={patient.id} initialPatient={initialPatient} user={{ ...user, role }} onBack={vi.fn()} onChanged={changed} />
+const recordStatus = () => host.querySelector('.detail-title .status')?.textContent
 
 it('shows loading then backend patient demographics and opens by internal ID', async () => {
   const select = vi.fn()
@@ -50,31 +55,34 @@ it('shows loading then backend patient demographics and opens by internal ID', a
   expect(host.querySelector('[role="status"]')?.textContent).toContain('Loading')
   await advance()
   expect(host.textContent).toContain(patient.patientNumber)
-  expect(host.textContent).toContain('26 years'); expect(host.textContent).toContain(patient.phone)
-  expect(host.textContent).toContain('Active')
+  expect(host.textContent).toContain('26 years'); expect(host.textContent).not.toContain(patient.phone)
+  expect(host.textContent).toContain('Active'); expect(host.textContent).toContain('Not admitted')
   await click('Amina Mary Ann Yusuf')
   expect(select).toHaveBeenCalledWith(patient.id)
 })
 it.each(['ADMIN', 'RECORDS_OFFICER'] as const)('%s sees registration and patient management', async (role) => {
-  await render(directory(role)); await advance(); expect(button('Add patient')).toBeDefined()
+  await render(directory(role)); await advance(); expect(button('Register patient')).toBeDefined()
   await render(detail(role)); expect(button('Edit details')).toBeDefined(); expect(button('Archive patient')).toBeDefined()
 })
-it('Doctor reads directory and detail but cannot open registration, edit or archival UI', async () => {
+it('Medical Officer registers patients but cannot edit, archive or reactivate', async () => {
   await render(directory('DOCTOR_IN_CHARGE')); await advance()
-  expect(button('Add patient')).toBeUndefined(); expect(host.textContent).toContain(patient.patientNumber)
+  expect(button('Register patient')).toBeDefined(); expect(host.textContent).toContain(patient.patientNumber)
   await render(detail('DOCTOR_IN_CHARGE')); expect(host.textContent).toContain(patient.patientNumber)
   expect(button('Edit details')).toBeUndefined(); expect(button('Archive patient')).toBeUndefined()
-  await render(<PatientDetail id={patient.id} key="archived" initialPatient={{ ...patient, archivedAt: patient.createdAt }} role="DOCTOR_IN_CHARGE" onBack={vi.fn()} onChanged={vi.fn()} />)
+  await render(<PatientDetail id={patient.id} key="archived" initialPatient={{ ...patient, archivedAt: patient.createdAt }} user={{ ...user, role: 'DOCTOR_IN_CHARGE' }} onBack={vi.fn()} onChanged={vi.fn()} />)
   expect(button('Reactivate patient')).toBeUndefined()
   await render(<PatientModal role="DOCTOR_IN_CHARGE" onClose={vi.fn()} onCreated={vi.fn()} />)
+  expect(host.querySelector('form')).not.toBeNull(); expect(button('Register & admit')).toBeDefined()
+  await render(<PatientModal key="edit" role="DOCTOR_IN_CHARGE" patient={patient} onClose={vi.fn()} onCreated={vi.fn()} />)
   expect(host.querySelector('form')).toBeNull()
 })
 it('uses distinct empty/search/archived states and role-aware registration CTA', async () => {
   vi.mocked(patientsApi.list).mockResolvedValue(page([]))
+  const registerButtons = () => Array.from(host.querySelectorAll('button')).filter((item) => item.textContent === 'Register patient').length
   await render(directory()); await advance(); expect(host.textContent).toContain('No patients registered yet.')
-  expect(button('Register patient')).toBeDefined()
+  expect(registerButtons()).toBe(2)
   await input('[aria-label="Search patients"]', 'nobody'); await advance(300)
-  expect(host.textContent).toContain('No patients match your search.'); expect(button('Register patient')).toBeUndefined()
+  expect(host.textContent).toContain('No patients match your search.'); expect(registerButtons()).toBe(1)
   await input('[aria-label="Search patients"]', '')
   await act(async () => { const select = host.querySelector('select')!; select.value = 'true'; select.dispatchEvent(new Event('change', { bubbles: true })) })
   await advance(); expect(host.textContent).toContain('No archived patients.')
@@ -116,17 +124,26 @@ it('recovers an out-of-range server page without rendering thousands of page but
 })
 it('renders archived status from the DTO', async () => {
   vi.mocked(patientsApi.list).mockResolvedValue(page([{ ...patient, archivedAt: patient.createdAt }]))
-  await render(directory()); await advance(); expect(host.querySelector('.status')?.textContent).toBe('Archived')
+  await render(directory()); await advance(); expect(host.querySelector('.status')?.textContent).toBe('Archived record')
 })
 
 it('registers only supported fields and returns the server identity without storage writes', async () => {
   const created = vi.fn(), closed = vi.fn(), storage = vi.spyOn(Storage.prototype, 'setItem')
   await render(<PatientModal role="ADMIN" onCreated={created} onClose={closed} />)
-  for (const name of ['firstName', 'middleName', 'lastName', 'dateOfBirth', 'phone']) expect(field(name).labels?.length).toBe(1)
+  for (const name of ['firstName', 'middleName', 'lastName', 'dateOfBirth']) expect(field(name).labels?.length).toBe(1)
+  expect(host.querySelector('input[name="phone"]')).toBeNull(); expect(host.textContent).not.toMatch(/phone/i)
   expect(host.querySelector('[role="dialog"]')?.getAttribute('aria-labelledby')).toBeTruthy()
   await fill('firstName', ' Test '); await fill('lastName', ' Person '); await fill('dateOfBirth', '2000-01-01'); await submit()
-  expect(patientsApi.create).toHaveBeenCalledExactlyOnceWith({ firstName: 'Test', middleName: null, lastName: 'Person', dateOfBirth: '2000-01-01', phone: null }, expect.stringMatching(/^[0-9a-f-]{36}$/))
-  expect(created).toHaveBeenCalledWith(patient); expect(closed).toHaveBeenCalledOnce(); expect(storage).not.toHaveBeenCalled()
+  expect(patientsApi.create).toHaveBeenCalledExactlyOnceWith({ firstName: 'Test', middleName: null, lastName: 'Person', dateOfBirth: '2000-01-01' }, expect.stringMatching(/^[0-9a-f-]{36}$/))
+  expect(created).toHaveBeenCalledWith(patient, false); expect(closed).toHaveBeenCalledOnce(); expect(storage).not.toHaveBeenCalled()
+})
+it('Register & admit registers the same fields once and continues to admission', async () => {
+  const created = vi.fn()
+  await render(<PatientModal role="RECORDS_OFFICER" onCreated={created} onClose={vi.fn()} />)
+  expect(Array.from(host.querySelectorAll('.modal-footer button')).map((item) => item.textContent)).toEqual(['Cancel', 'Register patient', 'Register & admit'])
+  await fill('firstName', 'Test'); await fill('lastName', 'Person'); await click('Register & admit')
+  expect(patientsApi.create).toHaveBeenCalledExactlyOnceWith({ firstName: 'Test', middleName: null, lastName: 'Person', dateOfBirth: null }, expect.any(String))
+  expect(created).toHaveBeenCalledWith(patient, true)
 })
 it('blocks future DOB and invalid required names before API submission', async () => {
   await render(<PatientModal role="ADMIN" onCreated={vi.fn()} onClose={vi.fn()} />)
@@ -151,7 +168,7 @@ it.each([new TypeError('Failed to fetch'), new ApiError(503, 'upstream detail', 
   await render(<PatientModal role="RECORDS_OFFICER" onCreated={vi.fn()} onClose={vi.fn()} />)
   await fill('firstName', 'Test'); await fill('lastName', 'Person'); await submit()
   const alert = host.querySelector('[role="alert"]')!.textContent!
-  expect(alert).toContain('could not be confirmed'); expect(alert).toContain('Select Register patient again without changing anything'); expect(alert).not.toContain('Please try again')
+  expect(alert).toContain('could not be confirmed'); expect(alert).toContain('Select the same button again without changing anything'); expect(alert).not.toContain('Please try again')
   expect(field('firstName').value).toBe('Test'); expect(patientsApi.create).toHaveBeenCalledTimes(1)
 })
 it('keeps validation messages unchanged for form-level problems', async () => {
@@ -176,7 +193,7 @@ it('focuses dialog, traps Tab and restores focus to its trigger', async () => {
   await render(<PatientModal role="ADMIN" onCreated={vi.fn()} onClose={close} />)
   expect(document.activeElement).toBe(host.querySelector('[role="dialog"]'))
   await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })) })
-  expect(document.activeElement).toBe(button('Register patient'))
+  expect(document.activeElement).toBe(button('Register & admit'))
   await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })) })
   expect(document.activeElement?.getAttribute('aria-label')).toBe('Close patient dialog')
   await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
@@ -185,10 +202,12 @@ it('focuses dialog, traps Tab and restores focus to its trigger', async () => {
 })
 
 it('loads detail by backend ID and displays demographics without mock clinical history', async () => {
-  await render(detail())
+  await render(detail()); await advance()
   expect(patientsApi.get).toHaveBeenCalledWith(patient.id, expect.any(AbortSignal))
-  expect(host.textContent).toContain('10/05/2000'); expect(host.textContent).toContain(patient.phone)
-  expect(host.textContent).toContain('Clinical history is not displayed')
+  expect(host.textContent).toContain('10 May 2000'); expect(host.textContent).toContain(patient.phone); expect(host.textContent).toContain('Phone (recorded earlier)')
+  expect(host.textContent).toContain('Clinical records are kept by Medical Officers')
+  expect(admissionsApi.list).toHaveBeenCalledWith({ patientId: patient.id, limit: 50 }, expect.any(AbortSignal))
+  expect(host.textContent).toContain('Not currently admitted'); expect(button('Admit patient')).toBeDefined(); expect(host.textContent).toContain('No previous admissions.')
   expect(host.textContent).not.toMatch(/Allergic Reaction|Dr\. Okafor|MR-7842/)
 })
 it('uses the returned created patient without a duplicate detail GET', async () => {
@@ -222,8 +241,9 @@ it('edits supported demographics and uses the response to refresh the displayed 
 })
 it('sends only edited demographics so a stale form cannot revert another user’s change', async () => {
   await render(detail('ADMIN', patient)); await click('Edit details')
-  await fill('middleName', ''); await fill('phone', '+233200000001'); await submit()
-  expect(patientsApi.update).toHaveBeenCalledExactlyOnceWith(patient.id, { middleName: null, phone: '+233200000001' })
+  expect(host.querySelector('input[name="phone"]')).toBeNull()
+  await fill('middleName', ''); await submit()
+  expect(patientsApi.update).toHaveBeenCalledExactlyOnceWith(patient.id, { middleName: null })
 })
 it('does not send an edit when nothing changed', async () => {
   await render(detail('ADMIN', patient)); await click('Edit details'); await submit()
@@ -241,10 +261,10 @@ it('requires confirmation, archives and reactivates with server-returned state',
   await click('Cancel'); expect(patientsApi.archive).not.toHaveBeenCalled()
   await click('Archive patient'); await click('Confirm archive')
   expect(patientsApi.archive).toHaveBeenCalledExactlyOnceWith(patient.id)
-  expect(host.querySelector('.status')?.textContent).toBe('Archived'); expect(button('Edit details')).toBeUndefined()
+  expect(recordStatus()).toBe('Archived record'); expect(button('Edit details')).toBeUndefined(); expect(button('Admit patient')).toBeUndefined()
   await click('Reactivate patient'); await click('Confirm reactivation')
   expect(patientsApi.reactivate).toHaveBeenCalledExactlyOnceWith(patient.id)
-  expect(host.querySelector('.status')?.textContent).toBe('Active'); expect(button('Edit details')).toBeDefined()
+  expect(recordStatus()).toBe('Not admitted'); expect(button('Edit details')).toBeDefined()
   expect(changed).toHaveBeenCalledTimes(2)
   expect(Array.from(host.querySelectorAll('button')).some((item) => /delete/i.test(item.textContent ?? ''))).toBe(false)
 })
@@ -252,8 +272,31 @@ it('keeps archival state stable and shows duplicate reactivation feedback', asyn
   vi.mocked(patientsApi.reactivate).mockRejectedValueOnce(new ApiError(409, 'private details', 'POSSIBLE_DUPLICATE_PATIENT'))
   await render(detail('ADMIN', { ...patient, archivedAt: patient.createdAt }))
   await click('Reactivate patient'); await click('Confirm reactivation')
-  expect(host.textContent).toContain('matching details'); expect(host.querySelector('.status')?.textContent).toBe('Archived')
+  expect(host.textContent).toContain('matching details'); expect(recordStatus()).toBe('Archived record')
   expect(patientsApi.reactivate).toHaveBeenCalledTimes(1)
+})
+it.each(['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const)('%s sees the current admission with role-appropriate actions and no archive while admitted', async (role) => {
+  vi.mocked(patientsApi.get).mockResolvedValue({ patient: admitted }); vi.mocked(admissionsApi.list).mockResolvedValue(admissionPage([admission, discharged]))
+  const open = vi.fn()
+  await render(<PatientDetail id={patient.id} user={{ ...user, role }} onBack={vi.fn()} onChanged={vi.fn()} onOpenRecord={role === 'DOCTOR_IN_CHARGE' ? open : undefined} />); await advance()
+  const current = host.querySelector('.admission-current')!.textContent!
+  for (const value of ['Admitted', 'Ward A - Bed 6', 'AD-000042', 'Grace Doctor']) expect(current).toContain(value)
+  expect(button('Change room')).toBeDefined(); expect(button('View admission')).toBeDefined()
+  expect(Boolean(button('Discharge patient'))).toBe(role === 'DOCTOR_IN_CHARGE'); expect(Boolean(button('Open medical record'))).toBe(role === 'DOCTOR_IN_CHARGE')
+  expect(button('Archive patient')).toBeUndefined(); if (role !== 'DOCTOR_IN_CHARGE') expect(host.textContent).toContain('Discharge the patient before archiving the record.')
+  expect(host.querySelector('[aria-label="Previous admissions"]')?.textContent).toContain('AD-000017')
+  if (role === 'DOCTOR_IN_CHARGE') { await click('Open medical record'); expect(open).toHaveBeenCalledWith(admission) }
+})
+it.each([['all', 'Search patients'], ['admitted', 'Search admissions'], ['discharged', 'Search admissions']] as const)('the %s view uses its own list and search', async (view, label) => {
+  vi.mocked(admissionsApi.list).mockResolvedValue(admissionPage(view === 'discharged' ? [discharged] : [admission]))
+  await render(directory()); await advance()
+  if (view !== 'all') await click(view === 'admitted' ? 'Currently admitted' : 'Discharged')
+  await advance(); expect(host.querySelector(`[aria-label="${label}"]`)).not.toBeNull()
+  if (view === 'all') expect(admissionsApi.list).not.toHaveBeenCalled()
+  else {
+    expect(admissionsApi.list).toHaveBeenLastCalledWith({ status: view === 'admitted' ? 'ADMITTED' : 'DISCHARGED', search: '', page: 1, limit: 10 }, expect.any(AbortSignal))
+    expect(host.textContent).toContain(view === 'admitted' ? 'Ward A - Bed 6' : 'AD-000017'); expect(host.querySelector('select')).toBeNull()
+  }
 })
 it('keeps the patient workspace free of mock data modules', () => {
   expect(existsSync(resolve('src/mocks'))).toBe(false)

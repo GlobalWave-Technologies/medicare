@@ -4,14 +4,15 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { BackendRole, StaffUser } from '../src/api/auth'
 import { patientsApi, type Patient } from '../src/api/patients'
+import { admissionsApi } from '../src/api/admissions'
 import { App } from '../src/app/App'
 
 // The auth gate itself has separate real-transport lifecycle tests. Exercise the
 // actual application composition using the safe identity it provides to children.
 const identity = vi.hoisted(() => ({ role: 'ADMIN' as BackendRole }))
-vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({ id: 'qa', staffNumber: 'STF-QA', firstName: 'QA', lastName: 'Staff', email: 'qa@example.test', role: identity.role, status: 'ACTIVE' }) }))
+vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({ id: 'qa', staffNumber: 'STF-QA', firstName: 'QA', lastName: 'Staff', email: 'qa@example.test', role: identity.role, status: 'ACTIVE', mustChangePassword: false }) }))
 let root: Root, host: HTMLDivElement, records: Patient[]
-const patient: Patient = { id: 'patient-uuid', patientNumber: 'PT-SERVER-REFERENCE', firstName: 'Created', middleName: null, lastName: 'Patient', dateOfBirth: '1990-01-01', phone: null, archivedAt: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
+const patient: Patient = { id: 'patient-uuid', patientNumber: 'PT-SERVER-REFERENCE', firstName: 'Created', middleName: null, lastName: 'Patient', dateOfBirth: '1990-01-01', phone: null, archivedAt: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', currentAdmission: null }
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   host = document.createElement('div'); document.body.append(host); root = createRoot(host); records = []
@@ -19,6 +20,7 @@ beforeEach(() => {
     const items = records.filter((record) => query?.archived === 'all' || Boolean(record.archivedAt) === (query?.archived === 'true'))
     return { items, pagination: { page: 1, limit: 10, total: items.length, totalPages: items.length ? 1 : 0 } }
   })
+  vi.spyOn(admissionsApi, 'list').mockResolvedValue({ items: [], pagination: { page: 1, limit: 50, total: 0, totalPages: 0 } })
   vi.spyOn(patientsApi, 'create').mockImplementation(async () => { records = [patient]; return { patient } })
   vi.spyOn(patientsApi, 'get').mockImplementation(async () => ({ patient: records[0]! }))
   vi.spyOn(patientsApi, 'update').mockImplementation(async () => { records = [{ ...patient, firstName: 'Edited' }]; return { patient: records[0]! } })
@@ -38,7 +40,7 @@ const submit = async () => { await act(async () => { host.querySelector('form')!
 it.each(['ADMIN', 'RECORDS_OFFICER'] as const)('%s can register, view, edit and archive with list consistency', async (role) => {
   identity.role = role
   await act(async () => root.render(<App />)); await click('Patients')
-  await click('Add patient'); await fill('firstName', 'Created'); await fill('lastName', 'Patient'); await submit()
+  await click('Register patient'); await fill('firstName', 'Created'); await fill('lastName', 'Patient'); await submit()
   expect(host.querySelector('.patient-detail')?.textContent).toContain('PT-SERVER-REFERENCE')
   expect(patientsApi.get).not.toHaveBeenCalled()
   await click('Edit details'); await fill('firstName', 'Edited'); await submit()
@@ -51,10 +53,10 @@ it.each(['ADMIN', 'RECORDS_OFFICER'] as const)('%s can register, view, edit and 
   await act(async () => { await vi.advanceTimersByTimeAsync(0) })
   expect(visible().some((button) => button.textContent === 'Edited Patient')).toBe(true)
 })
-it('keeps doctor read-only through the actual app navigation and detail composition', async () => {
+it('lets a Medical Officer register but keeps demographics read-only through the actual app composition', async () => {
   identity.role = 'DOCTOR_IN_CHARGE'; records = [patient]
   await act(async () => root.render(<App />)); await click('Patients')
-  expect(visible().some((button) => /Add patient|Register patient/.test(button.textContent ?? ''))).toBe(false)
+  expect(visible().some((button) => button.textContent === 'Register patient')).toBe(true)
   await click('Created Patient')
   expect(host.querySelector('.patient-detail')?.textContent).toContain(patient.patientNumber)
   expect(visible().some((button) => /Edit details|Archive patient|Reactivate patient/.test(button.textContent ?? ''))).toBe(false)

@@ -2,10 +2,21 @@
 .clinical-workspace.panel { margin-top: 18px; }
 .clinical-workspace p, .clinical-form p { line-height: 1.65; overflow-wrap: anywhere; }
 .clinical-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
+.clinical-actions-end { margin-left: auto; }
+@media (max-width: 600px) { .clinical-module > .clinical-actions .button { flex: 1 1 auto; } .clinical-actions-end { margin-left: 0; } }
+.clinical-filter-panel { margin-top: 14px; }
+.clinical-filter-panel > summary { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; color: var(--link); font-size: var(--text-md); font-weight: 700; cursor: pointer; list-style: none; }
+.clinical-filter-panel > summary::-webkit-details-marker { display: none; }
+.clinical-list-toolbar { display: flex; align-items: flex-start; gap: 12px; margin-top: 10px; }
+.clinical-list-toolbar > .clinical-filter-panel { flex: 1 1 auto; min-width: 0; margin: 0; }
+.clinical-filter-panel > summary::before { content: ''; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .15s; }
+.clinical-filter-panel[open] > summary::before { transform: rotate(45deg); }
+.clinical-filter-panel .clinical-filters { margin-top: 8px; }
+.clinical-reference { display: block; color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .clinical-module > .clinical-actions { margin-bottom: 4px; }
 .clinical-workspace > h2 { margin: 4px 0 6px; }
 .clinical-workspace > h2 + p { margin: 0; color: var(--muted); font-size: var(--text-md); }
-.clinical-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 20px 0 0; }
+.clinical-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 14px 0 0; }
 .clinical-open { font-size: 15px; font-variant-numeric: tabular-nums; }
 .clinical-history { list-style: none; display: grid; gap: 10px; margin: 16px 0 0; padding: 0; }
 .clinical-history article { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); transition: border-color .15s, background-color .15s; }
@@ -43,12 +54,81 @@
 .clinical-form textarea { line-height: 1.65; }
 .clinical-child { display: grid; gap: 14px; margin: 12px 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-muted); }
 .clinical-child .button { justify-self: start; }
-.editor-sections { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
-.editor-sections a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--link); font-size: var(--text-md); font-weight: 600; }
+.editor-sections { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 12px 0 4px; color: var(--muted); font-size: var(--text-sm); }
+.editor-sections a { display: inline-flex; align-items: center; min-height: 32px; color: var(--link); font-size: var(--text-md); font-weight: 600; text-decoration: underline; text-decoration-color: var(--link-underline); text-underline-offset: 3px; }
 .clinical-form h3[id] { scroll-margin-top: 16px; }
-.clinical-link { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
-.clinical-link p { margin: 0; color: var(--muted); font-size: var(--text-md); }
+.clinical-form section > h3 + label { margin-top: 10px; }
+.draft-final-guide ul { display: grid; gap: 6px; margin: 0; padding-left: 18px; }
+/* Long clinical forms keep their actions in reach: the footer stays at the bottom of the dialog. */
+.clinical-form > .modal-footer { position: sticky; bottom: -24px; z-index: 2; margin: 24px -24px -24px; padding: 14px 24px 18px; background: var(--surface-raised); box-shadow: var(--shadow-sticky); }
+.clinical-form h3[id] { scroll-margin-bottom: 96px; }
 @media (max-width: 650px) {
   .clinical-form-grid, .clinical-filters { grid-template-columns: minmax(0, 1fr); }
   .clinical-original, .clinical-amendments { padding: 16px; }
+}
+/* Medical record banner for one admission, admitted-patient search and medication orders. */
+.admission-banner { display: grid; gap: 14px; margin-bottom: 18px; }
+.admission-banner h2 { margin: 4px 0 6px; }
+.admission-banner .detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
+.admission-banner-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px 24px; margin: 0; }
+.admission-banner-facts dt { color: var(--muted); font-size: var(--text-sm); font-weight: 600; }
+.admission-banner-facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 0; color: var(--deep); overflow-wrap: anywhere; }
+.admission-banner-facts small { flex-basis: 100%; color: var(--muted); font-size: var(--text-sm); }
+.records-search { margin: 14px 0 4px; }
+.medication-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 12px; }
+.medication-grid .medication-wide { grid-column: 1 / -1; }
+.medication-list, .medication-history-list { display: grid; gap: 10px; margin: 8px 0 0; padding: 0; list-style: none; }
+.medication-list li, .medication-history-list li { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.medication-facts { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 6px 0 0; }
+.medication-facts dt { color: var(--muted); font-size: var(--text-sm); font-weight: 600; }
+.medication-facts dd { margin: 0; color: var(--deep); font-size: var(--text-md); overflow-wrap: anywhere; }
+.medication-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--deep); }
+.medication-name svg { color: var(--brand); }
+.medication-history { margin-top: 18px; }
+
+/* Medication orders in the record editor: catalog medicine plus dosing, edited until finalized. */
+.medication-orders { display: grid; gap: 12px; }
+.medication-orders > h3, .medication-orders > p { margin: 0; }
+.medication-order-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.medication-order-card { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.medication-order-card.is-editing { border-color: var(--brand-line); background: var(--brand-soft); }
+.medication-order-text { display: grid; gap: 4px; flex: 1 1 14rem; min-width: 0; }
+.medication-order-summary { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.medication-order-notes { margin: 0; color: var(--muted); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.medication-order-flag { margin: 0; color: var(--warning); font-size: var(--text-sm); font-weight: 600; }
+.medication-order-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.medication-editor { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--brand-line); border-radius: var(--radius); background: var(--surface-muted); }
+.medication-editor h4 { margin: 0; color: var(--deep); font-size: var(--text-md); overflow-wrap: anywhere; }
+.medication-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--deep); font-size: var(--text-md); font-weight: 600; }
+.medication-field label { color: var(--deep); }
+.field-optional { color: var(--muted); font-weight: 400; }
+.medication-duplicate { margin: 0; }
+.medication-editor-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.medication-instructions { margin: 6px 0 0; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.medication-instructions span { color: var(--muted); font-size: var(--text-sm); font-weight: 600; }
+
+/* Searchable medicine list (combobox). The list overlays the form and scrolls within the viewport. */
+.medication-picker { position: relative; min-width: 0; }
+.medication-picker-field { position: relative; }
+.medication-picker-field svg { position: absolute; top: 50%; left: 12px; color: var(--muted); transform: translateY(-50%); pointer-events: none; }
+.medication-picker-field input { padding-left: 38px; }
+.medication-picker-list { position: absolute; z-index: 5; top: calc(100% + 4px); right: 0; left: 0; max-height: min(18rem, 45vh); overflow-y: auto; margin: 0; padding: 4px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-raised); box-shadow: var(--shadow-raised); list-style: none; }
+.medication-picker-list[hidden] { display: none; }
+.medication-picker-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 8px 10px; border-radius: 6px;
+  color: var(--deep); font-weight: 500; overflow-wrap: anywhere; cursor: pointer; }
+.medication-picker-list li.is-active { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); }
+.medication-picker-list li svg { flex-shrink: 0; color: var(--success); }
+.medication-picker-empty { margin: 6px 0 0; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
+
+/* Medication history grouped by admission and clinical record. */
+.medication-history-section { display: grid; gap: 10px; margin-top: 16px; }
+.medication-history-section > h3 { margin: 0; }
+.medication-stay { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.medication-stay > h4 { margin: 0; color: var(--deep); font-size: var(--text-md); overflow-wrap: anywhere; }
+.medication-record-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.medication-record > .clinical-history-meta { margin: 0; }
+@media (max-width: 600px) {
+  .clinical-form > .modal-footer { flex-direction: row; bottom: -18px; margin: 18px -18px -18px; padding: 12px 18px 14px; }
+  .clinical-form > .modal-footer .button { flex: 1 1 0; width: auto; }
 }

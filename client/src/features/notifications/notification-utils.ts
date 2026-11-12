@@ -6,7 +6,8 @@ export const TITLE_LIMIT = 150
 export const MESSAGE_LIMIT = 2000
 export const canBroadcast = (role: BackendRole) => role === 'ADMIN'
 export const typeLabels: Record<NotificationType, string> = { DIRECT: 'Direct notice', BROADCAST: 'Staff broadcast' }
-export const audienceRoles: [BackendRole, string][] = [['ADMIN', 'Administrators'], ['RECORDS_OFFICER', 'Records Officers'], ['DOCTOR_IN_CHARGE', 'Doctors in Charge']]
+export const audienceRoles: [BackendRole, string][] = [['ADMIN', 'Administrators'], ['RECORDS_OFFICER', 'Records Officers'], ['DOCTOR_IN_CHARGE', 'Medical Officers']]
+// Past appointment notices keep their link for the record; appointments themselves are retired.
 export const appointmentTarget = (notification: InboxNotification) => notification.target?.type === 'APPOINTMENT' ? notification.target.id : undefined
 
 export const compactCount = (count: number) => count > 99 ? '99+' : String(count)

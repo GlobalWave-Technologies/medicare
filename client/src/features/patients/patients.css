@@ -1,18 +1,34 @@
 .patient-fields { margin: 0; }
-.patients-toolbar { display: grid; grid-template-columns: minmax(0,1fr) 220px; gap: 12px; margin-top: 20px; }
+.register-choices { display: grid; gap: 4px; margin: 18px 0 0; padding: 12px 14px 12px 32px; border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--muted); font-size: var(--text-sm); }
+.register-choices strong { color: var(--deep); }
+.patients-toolbar { display: grid; grid-template-columns: minmax(0,1fr) 200px auto; align-items: center; gap: 12px; margin-top: 18px; }
+.patients-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .patients-search { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0 12px; border: 1px solid var(--field-border); border-radius: var(--radius-sm); background: var(--surface); }
 .patients-search svg { color: var(--muted); flex-shrink: 0; }
 .patients-search input { padding: 10px 0; border: 0; background: transparent; }
 .patients-search:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
 .patients-search input:focus { outline: 0; }
-.patients-table th:first-child { width: 32%; }
+.patients-table th:first-child { width: 42%; }
 .patient-name { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .patients-name-copy { min-width: 0; }
 .patient-name-button { font-size: 15px; }
-.patients-name-copy span { display: block; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.patients-table .patient-name-button { min-height: 28px; }
+.patients-table .patient-name .avatar { flex-basis: 34px; width: 34px; height: 34px; border-radius: 9px; font-size: var(--text-xs); }
+.patients-name-copy span { display: block; color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .patient-demographics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 18px 24px; margin: 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-muted); }
 .patient-demographics dd { margin: 0; color: var(--deep); overflow-wrap: anywhere; }
-.patient-clinical { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 18px; margin-top: 18px; padding: 16px 18px; border: 1px solid var(--brand-line); border-radius: var(--radius); background: var(--brand-soft); }
+.patient-clinical { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 18px; margin-top: 22px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-muted); }
+.patient-detail-heading .detail-meta { gap: 6px 16px; }
+.patient-number { font-variant-numeric: tabular-nums; }
+.patient-number[title] { white-space: nowrap; cursor: help; }
+.patient-detail-heading .record-id.patient-number { font-size: var(--text-xs); }
+.patient-number-full { display: inline-grid; grid-template-columns: minmax(0, max-content) auto; align-items: center; gap: 2px 6px; min-width: 0; max-width: 100%; }
+.patient-number-full .copy-number-status { grid-column: 1 / -1; }
+.copy-number { width: 32px; height: 32px; min-height: 32px; border-radius: var(--radius-sm); }
+.copy-number-status { color: var(--muted); font-size: var(--text-sm); }
+.copy-number-status:empty { display: none; }
+.patient-room { display: inline-flex; align-items: center; gap: 6px; color: var(--deep); font-weight: 700; }
+.patient-room svg { color: var(--muted); }
 .patient-clinical p { margin: 0; color: var(--deep); font-size: var(--text-md); }
 .patient-clinical-note { margin: 18px 0 0; }
 .patient-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
@@ -21,8 +37,15 @@
 .patients-state-error { min-height: 0; }
 .patients-state-error p { margin: 0; }
 .patients-state-error .button { margin-top: 10px; }
+/* Tablets keep search, the record filter and Refresh on one row. */
+@media (max-width: 900px) { .patients-toolbar { grid-template-columns: minmax(0,1fr) 180px auto; } }
 @media (max-width: 600px) {
   .patients-add-button { width: 100%; }
-  .patients-toolbar { grid-template-columns: minmax(0,1fr); }
+  /* Search and Refresh share one row; the record filter takes the next. */
+  .patients-toolbar, .patients-toolbar.patients-toolbar-single { grid-template-columns: minmax(0,1fr) auto; }
+  .patients-toolbar .patients-filter { grid-column: 1 / -1; grid-row: 2; }
+  .patients-toolbar-actions { grid-column: 2; grid-row: 1; flex-wrap: nowrap; }
   .patient-actions .button, .patient-clinical .button { flex: 1 1 100%; }
+  /* Change room and View admission share a row; the main action and Discharge stay full width. */
+  .patient-actions.admission-actions .button-ghost { flex: 1 1 calc(50% - 6px); min-width: 0; padding-inline: 10px; }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dashboardQuerySchema, reportQuerySchema, resolveReportRange, DAY_MS } from '../src/modules/reports/report.validation.js'
-import { appointmentSummary, bucketStart, buildTimeBuckets, countNumber, emptyAppointmentCounts, rangeDto } from '../src/modules/reports/report.dto.js'
+import { bucketStart, buildTimeBuckets, countNumber, rangeDto } from '../src/modules/reports/report.dto.js'
 
 const from = '2024-02-28T12:00:00Z', to = '2024-03-02T12:00:00Z'
 describe('report validation and UTC buckets', () => {
@@ -26,12 +26,18 @@ describe('report validation and UTC buckets', () => {
   it.each([true, false])('has bounded UTC defaults dashboard=%s', (dashboard) => {
     const range = resolveReportRange({}, dashboard, new Date('2024-03-01T23:59:59.999Z'))
     expect(range.to.toISOString()).toBe('2024-03-02T00:00:00.000Z')
-    expect(range.to.getTime() - range.from.getTime()).toBe((dashboard ? 1 : 30) * DAY_MS)
+    expect(range.to.getTime() - range.from.getTime()).toBe((dashboard ? 7 : 30) * DAY_MS)
     expect(range.from.getUTCHours()).toBe(0)
   })
   it.each([{ from, to: from }, { from: to, to: from }, { from }, { to }, { from: 'bad', to },
     { from: '2023-01-01T00:00:00Z', to: '2024-01-03T00:00:00Z' }])('rejects unordered/unbounded service input %j', (query) => {
     expect(() => resolveReportRange(query, false)).toThrow()
+  })
+  it('limits the dashboard chart to 31 days and reports to 366 days', () => {
+    const start = Date.parse(from), month = new Date(start + 31 * DAY_MS).toISOString(), over = new Date(start + 31 * DAY_MS + 1).toISOString()
+    expect(buildTimeBuckets(resolveReportRange({ from, to: month }, true))).toHaveLength(32)
+    expect(() => resolveReportRange({ from, to: over }, true)).toThrow('Dashboard range cannot exceed 31 days')
+    expect(resolveReportRange({ from, to: over }, false).bucket).toBe('day')
   })
   it('allows exactly 366 days and partial edge buckets, rejects one extra millisecond', () => {
     const start = Date.parse(from), end = start + 366 * DAY_MS
@@ -63,12 +69,4 @@ describe('report validation and UTC buckets', () => {
 describe('safe numeric aggregates', () => {
   it.each([0, 1, 123n, BigInt(Number.MAX_SAFE_INTEGER)])('converts count %s', (value) => expect(countNumber(value)).toBe(Number(value)))
   it.each([-1, -1n, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, BigInt(Number.MAX_SAFE_INTEGER) + 1n])('rejects unsafe count %s', (value) => expect(() => countNumber(value)).toThrow())
-  it('has finite zeros for empty status groups', () => {
-    expect(appointmentSummary(emptyAppointmentCounts())).toEqual({ ...emptyAppointmentCounts(), totalAppointments: 0, cancellationRate: 0, noShowRate: 0 })
-  })
-  it('includes every status in the denominator and rounds to two decimals', () => {
-    expect(appointmentSummary({ scheduled: 1, confirmed: 1, checkedIn: 1, completed: 1, cancelled: 1, noShow: 1 }))
-      .toEqual({ scheduled: 1, confirmed: 1, checkedIn: 1, completed: 1, cancelled: 1, noShow: 1, totalAppointments: 6, cancellationRate: 16.67, noShowRate: 16.67 })
-  })
-  it('detects aggregate overflow', () => expect(() => appointmentSummary({ ...emptyAppointmentCounts(), scheduled: Number.MAX_SAFE_INTEGER, cancelled: 1 })).toThrow())
 })

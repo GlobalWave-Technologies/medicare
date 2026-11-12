@@ -6,7 +6,8 @@ import { authContext, auditContext } from '../auth/auth.context.js'
 import { clearSessionCookie } from '../auth/cookies.js'
 import { idempotencyScope, markReplay } from '../../shared/idempotency/idempotency.js'
 import { createStaffSchema, resetPasswordSchema, roleSchema, staffIdSchema, staffQuerySchema, statusSchema } from './staff.validation.js'
-import { changeStaff, createStaff, getStaff, listStaff, resetStaffPassword, revokeStaffSessions, staffFingerprint } from './staff.service.js'
+import { emptyCommandSchema, sessionParamsSchema } from '../staff-activity/activity.validation.js'
+import { changeStaff, createStaff, getStaff, listStaff, resetStaffPassword, revokeStaffSession, revokeStaffSessions, staffFingerprint } from './staff.service.js'
 
 export function staffRoutes(db: PrismaClient, env: Pick<Environment, 'NODE_ENV' | 'CLIENT_ORIGIN'>) {
   const router = Router()
@@ -39,6 +40,13 @@ export function staffRoutes(db: PrismaClient, env: Pick<Environment, 'NODE_ENV' 
     const id = staffIdSchema.parse(req.params).id
     await revokeStaffSessions(db, authContext(req), auditContext(req), id)
     if (id === authContext(req).principal.id) clearSessionCookie(res, env.NODE_ENV)
+    res.json({ success: true, data: { revoked: true } })
+  })
+  router.post('/:id/sessions/:sessionId/revoke', async (req, res) => {
+    const { id, sessionId } = sessionParamsSchema.parse(req.params)
+    emptyCommandSchema.parse(req.body ?? {})
+    await revokeStaffSession(db, authContext(req), auditContext(req), id, sessionId)
+    if (sessionId === authContext(req).sessionId) clearSessionCookie(res, env.NODE_ENV)
     res.json({ success: true, data: { revoked: true } })
   })
   return router

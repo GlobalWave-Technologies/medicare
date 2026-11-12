@@ -3,16 +3,18 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { encountersApi, type Encounter } from '../src/api/encounters'
+import { admissionsApi } from '../src/api/admissions'
+import { medicationsApi } from '../src/api/medications'
 import { ApiError } from '../src/api/client'
 import { Records } from '../src/features/records/Records'
 import { EncounterList } from '../src/features/records/EncounterList'
 import { EncounterDetail } from '../src/features/records/EncounterDetail'
 import { EncounterForm } from '../src/features/records/EncounterForm'
-import { AppointmentClinicalLink } from '../src/features/records/AppointmentClinicalLink'
 import { ClinicalDialog } from '../src/features/records/ClinicalDialog'
 import { ClinicalCommand } from '../src/features/records/ClinicalCommands'
-import { displayTime, toLocalInput } from '../src/features/appointments/appointment-time'
-import { clinicalPage, doctor, eligibleAppointment, encounter, patient, reviewed } from './clinical-fixtures'
+import { displayTime, toLocalInput } from '../src/lib/time'
+import { admission, admittedPatient, catalogOptions, clinicalPage, doctor, encounter, patient, reviewed } from './clinical-fixtures'
+import { admissionPage } from './admission-fixtures'
 let root: Root, host: HTMLDivElement
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-01T12:00:00Z')); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -20,6 +22,9 @@ beforeEach(() => {
   vi.spyOn(encountersApi, 'list').mockResolvedValue(clinicalPage); vi.spyOn(encountersApi, 'history').mockResolvedValue(clinicalPage); vi.spyOn(encountersApi, 'get').mockResolvedValue({ encounter })
   vi.spyOn(encountersApi, 'create').mockResolvedValue({ encounter }); vi.spyOn(encountersApi, 'updateDraft').mockResolvedValue({ encounter: { ...encounter, clinicalNotes: 'Updated clinical note' } })
   vi.spyOn(encountersApi, 'finalize').mockResolvedValue({ encounter: reviewed }); vi.spyOn(encountersApi, 'amend').mockImplementation(async (_id, input) => ({ encounter: { ...reviewed, amendments: [{ id: 'amendment-1', ...input, author: doctor, createdAt: '2026-11-01T12:00:00Z' }] } }))
+  vi.spyOn(encountersApi, 'medications').mockResolvedValue({ items: [], pagination: { ...clinicalPage.pagination, total: 0, totalPages: 0 } })
+  vi.spyOn(admissionsApi, 'list').mockResolvedValue(admissionPage())
+  vi.spyOn(medicationsApi, 'options').mockResolvedValue({ items: catalogOptions })
   vi.spyOn(window, 'confirm').mockReturnValue(false)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals() })
@@ -38,25 +43,48 @@ async function fill(name: string, value: string) {
 }
 const submit = async () => { await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await tick() }
 const detail = (value: Encounter = encounter, identity = doctor) => <EncounterDetail user={identity} id={value.id} initial={value} onBack={vi.fn()} onChanged={vi.fn()} />
-const editor = (value?: Encounter, saved = vi.fn(), close = vi.fn()) => <EncounterForm user={doctor} patient={patient} encounter={value} appointment={eligibleAppointment} onClose={close} onSaved={saved} />
+const editor = (value?: Encounter, saved = vi.fn(), close = vi.fn()) => <EncounterForm user={doctor} patient={patient} encounter={value} admission={value ? value.admission : admission} onClose={close} onSaved={saved} />
 it.each(['ADMIN', 'RECORDS_OFFICER'] as const)('%s cannot mount clinical screens or cause clinical reads', async (role) => {
   const user = { ...doctor, role }
-  await render(<><Records user={user} context={{ kind: 'patient', patient }} onBack={vi.fn()} onChoosePatient={vi.fn()} /><EncounterDetail user={user} id={encounter.id} onBack={vi.fn()} onChanged={vi.fn()} /><EncounterList user={user} patient={patient} revision={0} onSelect={vi.fn()} /><EncounterForm user={user} patient={patient} onClose={vi.fn()} onSaved={vi.fn()} /><AppointmentClinicalLink user={user} appointment={eligibleAppointment} onEnter={vi.fn()} /></>); await tick()
-  expect(host.textContent).toBe(''); expect(encountersApi.list).not.toHaveBeenCalled(); expect(encountersApi.history).not.toHaveBeenCalled(); expect(encountersApi.get).not.toHaveBeenCalled()
+  await render(<><Records user={user} context={{ kind: 'patient', patient }} onBack={vi.fn()} onOpenPatient={vi.fn()} /><Records user={user} onBack={vi.fn()} onOpenPatient={vi.fn()} /><EncounterDetail user={user} id={encounter.id} onBack={vi.fn()} onChanged={vi.fn()} /><EncounterList user={user} patient={patient} revision={0} onSelect={vi.fn()} /><EncounterForm user={user} patient={patient} admission={admission} onClose={vi.fn()} onSaved={vi.fn()} /></>); await tick()
+  expect(host.textContent).toBe(''); expect(encountersApi.list).not.toHaveBeenCalled(); expect(encountersApi.history).not.toHaveBeenCalled(); expect(encountersApi.get).not.toHaveBeenCalled(); expect(encountersApi.medications).not.toHaveBeenCalled()
 })
 it('loads real clinical summaries without detail-only notes or audit data', async () => {
   await render(<EncounterList user={doctor} revision={0} onSelect={vi.fn()} />); expect(host.textContent).toContain('Loading clinical records'); await tick()
-  for (const value of ['MR-SERVER', 'Amina Patient', 'Grace Doctor', 'Example diagnosis', 'LOCAL-1', 'APT-SERVER', 'Draft', displayTime(encounter.occurredAt)]) expect(host.textContent).toContain(value)
+  for (const value of ['MR-SERVER', 'Amina Patient', 'Grace Doctor', 'Example diagnosis', 'LOCAL-1', 'Admission AD-000042', 'Draft', displayTime(encounter.occurredAt)]) expect(host.textContent).toContain(value)
   expect(host.textContent).not.toContain('Original clinical notes'); expect(encountersApi.get).not.toHaveBeenCalled()
 })
 it('loads archived patient history without offering creation', async () => {
-  await render(<Records user={doctor} context={{ kind: 'patient', patient: { ...patient, archivedAt: '2026-11-01T10:00:00Z' } }} onBack={vi.fn()} onChoosePatient={vi.fn()} />); await tick()
-  expect(encountersApi.history).toHaveBeenCalledWith(patient.id, expect.objectContaining({ page: 1, limit: 20 }), expect.any(AbortSignal)); expect(encountersApi.list).not.toHaveBeenCalled(); expect(host.textContent).toContain('Archived patient'); expect(button('New encounter for this patient')).toBeUndefined()
+  await render(<Records user={doctor} context={{ kind: 'patient', patient: { ...admittedPatient, archivedAt: '2026-11-01T10:00:00Z' } }} onBack={vi.fn()} onOpenPatient={vi.fn()} />); await tick()
+  expect(encountersApi.history).toHaveBeenCalledWith(patient.id, expect.objectContaining({ page: 1, limit: 20 }), expect.any(AbortSignal)); expect(encountersApi.list).not.toHaveBeenCalled(); expect(host.textContent).toContain('Archived patient'); expect(button('New clinical record')).toBeUndefined()
+})
+it('offers a new record from a patient history only on the current admission', async () => {
+  await render(<Records user={doctor} context={{ kind: 'patient', patient }} onBack={vi.fn()} onOpenPatient={vi.fn()} />); await tick()
+  expect(button('New clinical record')).toBeUndefined(); expect(encountersApi.medications).toHaveBeenCalledWith(patient.id, { page: 1, limit: 20 }, expect.any(AbortSignal))
+  await render(<Records key="admitted" user={doctor} context={{ kind: 'patient', patient: admittedPatient }} onBack={vi.fn()} onOpenPatient={vi.fn()} />); await tick()
+  await click('New clinical record'); await fill('clinicalNotes', 'Ward round'); await submit()
+  expect(encountersApi.create).toHaveBeenCalledWith(expect.objectContaining({ admissionId: admission.id, clinicalNotes: 'Ward round' }), expect.any(String))
+})
+it('lists currently admitted patients on the Medical Records landing and opens one admission record', async () => {
+  const openPatient = vi.fn()
+  await render(<Records user={doctor} onBack={vi.fn()} onOpenPatient={openPatient} />); await tick()
+  expect(admissionsApi.list).toHaveBeenCalledWith(expect.objectContaining({ status: 'ADMITTED', page: 1 }), expect.any(AbortSignal))
+  expect(host.textContent).toContain('Currently admitted patients'); expect(host.textContent).toContain('Ward A - Bed 6'); expect(encountersApi.list).not.toHaveBeenCalled()
+  await click('Amina Patient'); expect(openPatient).toHaveBeenCalledWith(patient.id)
+  await act(async () => buttons().find((item) => item.textContent?.startsWith('Medical record'))!.click()); await tick()
+  expect(host.querySelector('.admission-banner')?.textContent).toContain('AD-000042'); expect(host.querySelector('.admission-banner')?.textContent).toContain('Ward A - Bed 6')
+  expect(encountersApi.list).toHaveBeenCalledWith(expect.objectContaining({ admissionId: admission.id }), expect.any(AbortSignal))
+  expect(button('New clinical record')).toBeDefined(); expect(button('Discharge patient')).toBeDefined(); expect(button('Back to medical records')).toBeDefined()
+})
+it('shows a discharged admission read-only, with no new record or discharge', async () => {
+  const closed = { ...admission, status: 'DISCHARGED' as const, dischargedAt: '2026-11-01T11:00:00Z', dischargedBy: doctor }
+  await render(<Records user={doctor} context={{ kind: 'admission', admission: closed }} onBack={vi.fn()} onOpenPatient={vi.fn()} />); await tick()
+  expect(host.textContent).toContain('This admission is closed'); expect(button('New clinical record')).toBeUndefined(); expect(button('Discharge patient')).toBeUndefined()
 })
 it.each(['history', 'list'] as const)('announces empty %s separately from filter emptiness', async (kind) => {
   vi.mocked(encountersApi[kind]).mockResolvedValue({ items: [], pagination: { ...clinicalPage.pagination, total: 0, totalPages: 0 } })
   await render(<EncounterList user={doctor} patient={kind === 'history' ? patient : undefined} revision={0} onSelect={vi.fn()} />); await tick()
-  expect(host.textContent).toContain(kind === 'history' ? 'No clinical encounters have been recorded for this patient' : 'No clinical encounters have been recorded')
+  expect(host.textContent).toContain(kind === 'history' ? 'No clinical records have been made for this patient' : 'No clinical records have been made')
   await fill('clinicalSearch', 'MR-NONE'); await tick(300); expect(host.textContent).toContain('No clinical records match these filters')
 })
 it('debounces reference search and ignores aborted stale clinical results', async () => {
@@ -80,7 +108,8 @@ it('maps list failure safely and retries deliberately', async () => {
 it('loads detail by UUID and displays actual content with local timestamps', async () => {
   await render(<EncounterDetail user={doctor} id={encounter.id} onBack={vi.fn()} onChanged={vi.fn()} />)
   expect(encountersApi.get).toHaveBeenCalledWith(encounter.id, expect.any(AbortSignal))
-  for (const value of ['MR-SERVER', 'Amina Patient', 'Grace Doctor', 'APT-SERVER', 'Example complaint', 'Example diagnosis', 'Diagnosis note', 'History\nSecond line', 'Original clinical notes', 'Original treatment plan', displayTime(encounter.occurredAt)]) expect(host.textContent).toContain(value)
+  for (const value of ['MR-SERVER', 'Amina Patient', 'Grace Doctor', 'AD-000042', 'Example complaint', 'Example diagnosis', 'Diagnosis note', 'Paracetamol 500 mg', '1 tablet', 'Oral', 'Twice daily', '5 days', 'After meals', 'History\nSecond line', 'Original clinical notes', 'Original treatment plan', displayTime(encounter.occurredAt)]) expect(host.textContent).toContain(value)
+  expect(host.textContent).not.toContain('Past appointment')
   expect(host.textContent).not.toContain(doctor.email)
 })
 it('shows generic hidden/unknown detail with back navigation', async () => {
@@ -95,14 +124,22 @@ it.each(['REVIEWED', 'VOIDED'] as const)('renders %s content read-only with no e
   await render(detail({ ...reviewed, status })); expect(button('Edit draft')).toBeUndefined(); expect(button('Finalize record')).toBeUndefined(); expect(buttons().some((item) => /delete/i.test(item.textContent ?? ''))).toBe(false)
   expect(Boolean(button('Add amendment'))).toBe(status === 'REVIEWED'); expect(host.textContent).toContain(displayTime(reviewed.reviewedAt!))
 })
-it('creates a draft with real patient/appointment IDs and zoned time, using the returned DTO', async () => {
+it('creates a draft on the real admission with zoned time, using the returned DTO', async () => {
   const saved = vi.fn(); await render(editor(undefined, saved)); await fill('clinicalNotes', 'Actual entered note'); await submit()
-  expect(encountersApi.create).toHaveBeenCalledWith(expect.objectContaining({ patientId: patient.id, appointmentId: eligibleAppointment.id, occurredAt: expect.stringMatching(/Z$/), clinicalNotes: 'Actual entered note' }), expect.stringMatching(/^[0-9a-f-]{36}$/))
+  expect(encountersApi.create).toHaveBeenCalledWith(expect.objectContaining({ admissionId: admission.id, occurredAt: expect.stringMatching(/Z$/), clinicalNotes: 'Actual entered note' }), expect.stringMatching(/^[0-9a-f-]{36}$/))
+  expect(vi.mocked(encountersApi.create).mock.calls[0]![0]).not.toHaveProperty('patientId')
   expect(encountersApi.create).toHaveBeenCalledWith(expect.not.objectContaining({ clinicianId: expect.anything(), status: expect.anything() }), expect.stringMatching(/^[0-9a-f-]{36}$/)); expect(saved).toHaveBeenCalledWith(encounter)
 })
-it('supports unlinked creation from an explicitly selected patient', async () => {
-  await render(<EncounterForm user={doctor} patient={patient} onClose={vi.fn()} onSaved={vi.fn()} />); await submit()
-  expect(encountersApi.create).toHaveBeenCalledWith(expect.objectContaining({ patientId: patient.id }), expect.stringMatching(/^[0-9a-f-]{36}$/)); expect(vi.mocked(encountersApi.create).mock.calls[0]![0]).not.toHaveProperty('appointmentId')
+it('never opens a new record without a current admission, and starts in the admission room', async () => {
+  await render(<EncounterForm user={doctor} patient={patient} onClose={vi.fn()} onSaved={vi.fn()} />); expect(host.textContent).toBe('')
+  await render(<EncounterForm key="room" user={doctor} patient={patient} admission={{ ...admission }} onClose={vi.fn()} onSaved={vi.fn()} />)
+  expect(host.querySelector<HTMLInputElement>('[name="roomLabel"]')!.value).toBe('Ward A - Bed 6'); expect(host.textContent).toContain('Admission AD-000042')
+})
+it('loads the medicine list once for the editor and keeps the existing orders of a draft', async () => {
+  await render(editor(encounter)); await tick()
+  expect(medicationsApi.options).toHaveBeenCalledOnce()
+  expect(host.querySelector('.medication-order-card')?.textContent).toContain('Paracetamol 500 mg')
+  expect(host.querySelector('.medication-order-card')?.textContent).toContain('1 tablet · Oral · Twice daily · 5 days')
 })
 it('adds, edits and removes structured complaints and multiple diagnoses', async () => {
   await render(editor()); await click('Add complaint'); await submit(); expect(host.textContent).toContain('Each complaint needs')
@@ -114,17 +151,12 @@ it('blocks invalid clinical time and preserves user content', async () => {
   await render(editor()); await fill('clinicalNotes', 'Keep note'); await fill('occurredAt', toLocalInput('2026-11-02T12:00:00Z')); await submit()
   expect(encountersApi.create).not.toHaveBeenCalled(); expect(host.textContent).toContain('future'); expect((host.querySelector('[name="clinicalNotes"]') as HTMLTextAreaElement).value).toBe('Keep note')
 })
-it.each(['PATIENT_ARCHIVED', 'APPOINTMENT_NOT_ELIGIBLE_FOR_ENCOUNTER', 'APPOINTMENT_ALREADY_HAS_ENCOUNTER'] as const)('handles create rejection %s without losing draft text', async (code) => {
+it.each(['PATIENT_ARCHIVED', 'ADMISSION_NOT_CURRENT', 'ADMISSION_NOT_FOUND'] as const)('handles create rejection %s without losing draft text', async (code) => {
   vi.mocked(encountersApi.create).mockRejectedValue(new ApiError(409, 'raw secret', code)); await render(editor()); await fill('clinicalNotes', 'Retain draft'); await submit()
   expect(host.querySelector('[role="alert"]')).not.toBeNull(); expect(host.textContent).not.toContain('raw secret'); expect((host.querySelector('[name="clinicalNotes"]') as HTMLTextAreaElement).value).toBe('Retain draft')
 })
-it('offers deliberate duplicate encounter recovery without replaying creation', async () => {
-  const open = vi.fn(); vi.mocked(encountersApi.create).mockRejectedValue(new ApiError(409, '', 'APPOINTMENT_ALREADY_HAS_ENCOUNTER'))
-  await render(<EncounterForm user={doctor} patient={patient} appointment={eligibleAppointment} onClose={vi.fn()} onSaved={vi.fn()} onOpenExisting={open} />); await submit(); await click('Open existing clinical record')
-  expect(open).toHaveBeenCalledOnce(); expect(encountersApi.create).toHaveBeenCalledOnce()
-})
 it('draft editing sends only changed fields with immutable context', async () => {
-  await render(editor(encounter)); expect(host.querySelector('select')).toBeNull(); expect(host.textContent).toContain('cannot be changed')
+  await render(editor(encounter)); expect(host.querySelector('select')).toBeNull(); expect(host.textContent).toContain('it becomes part of the permanent medical record and can no longer be changed')
   await fill('clinicalNotes', 'Updated clinical note'); await submit(); expect(encountersApi.updateDraft).toHaveBeenCalledWith(encounter, { clinicalNotes: 'Updated clinical note' })
 })
 it('a failed draft save keeps entered text and supports deliberate retry', async () => {
@@ -172,23 +204,6 @@ it('clears an earlier success notice before a later amendment whose result canno
 it('keeps amendment input on server rejection and never overwrites the original', async () => {
   vi.mocked(encountersApi.amend).mockRejectedValue(new ApiError(403, 'raw', 'ENCOUNTER_AUTHOR_REQUIRED')); await render(detail(reviewed)); await click('Add amendment'); await fill('amendmentReason', 'Reason'); await fill('amendmentContent', 'Keep correction'); await submit()
   expect((host.querySelector('[name="amendmentContent"]') as HTMLTextAreaElement).value).toBe('Keep correction'); expect(host.querySelector('.clinical-original')!.textContent).toContain('Original clinical notes')
-})
-it.each(['CHECKED_IN', 'COMPLETED'] as const)('offers linked creation for own %s appointment only after lookup confirms absence', async (status) => {
-  vi.mocked(encountersApi.list).mockResolvedValue({ items: [], pagination: clinicalPage.pagination }); const enter = vi.fn()
-  await render(<AppointmentClinicalLink user={doctor} appointment={{ ...eligibleAppointment, status }} onEnter={enter} />)
-  expect(encountersApi.list).toHaveBeenCalledWith({ appointmentId: eligibleAppointment.id, page: 1, limit: 1 }, expect.any(AbortSignal)); await click('Start clinical encounter'); expect(enter).toHaveBeenCalledWith({ ...eligibleAppointment, status }); expect(encountersApi.create).not.toHaveBeenCalled()
-})
-it('offers opening the existing clinical record instead of creating again', async () => {
-  const enter = vi.fn(); await render(<AppointmentClinicalLink user={doctor} appointment={eligibleAppointment} onEnter={enter} />); expect(button('Start clinical encounter')).toBeUndefined(); await click('Open clinical record'); expect(enter).toHaveBeenCalledWith(eligibleAppointment, encounter.id)
-})
-it.each(['SCHEDULED', 'CONFIRMED', 'CANCELLED', 'NO_SHOW'] as const)('does not offer creation for %s appointments', async (status) => {
-  vi.mocked(encountersApi.list).mockResolvedValue({ items: [], pagination: clinicalPage.pagination }); await render(<AppointmentClinicalLink user={doctor} appointment={{ ...eligibleAppointment, status }} onEnter={vi.fn()} />); expect(button('Start clinical encounter')).toBeUndefined()
-})
-it('does not discover clinical content through another doctor assignment', async () => {
-  await render(<AppointmentClinicalLink user={{ ...doctor, id: 'other' }} appointment={eligibleAppointment} onEnter={vi.fn()} />); expect(encountersApi.list).not.toHaveBeenCalled(); expect(host.textContent).toBe('')
-})
-it('does not offer creation after failed linked lookup', async () => {
-  vi.mocked(encountersApi.list).mockRejectedValueOnce(new Error('unavailable')); await render(<AppointmentClinicalLink user={doctor} appointment={eligibleAppointment} onEnter={vi.fn()} />); expect(button('Start clinical encounter')).toBeUndefined(); expect(host.querySelector('[role="alert"]')).not.toBeNull(); await click('Refresh linked record'); expect(button('Open clinical record')).toBeDefined()
 })
 it('focuses, traps textarea keyboard navigation and restores focus for clinical confirmations', async () => {
   const opener = document.createElement('button'); document.body.append(opener); opener.focus(); const close = vi.fn()

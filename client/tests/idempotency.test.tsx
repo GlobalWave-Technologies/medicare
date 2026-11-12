@@ -7,12 +7,13 @@ import { newIdempotencyKey, submissionKeys } from '../src/api/idempotency'
 import { patientsApi, type Patient } from '../src/api/patients'
 import { encountersApi } from '../src/api/encounters'
 import { notificationsApi } from '../src/api/notifications'
-import { appointmentsApi } from '../src/api/appointments'
+import { admissionsApi } from '../src/api/admissions'
 import { PatientModal } from '../src/features/patients/PatientModal'
 import { EncounterForm } from '../src/features/records/EncounterForm'
+import { AdmitDialog } from '../src/features/admissions/AdmissionDialogs'
 import { BroadcastComposer } from '../src/features/notifications/BroadcastComposer'
-import { appointment } from './appointment-fixtures'
-import { doctor, eligibleAppointment, encounter, patient } from './clinical-fixtures'
+import { admission } from './admission-fixtures'
+import { doctor, encounter, patient } from './clinical-fixtures'
 import { broadcastNotice } from './notification-fixtures'
 
 const serverPattern = /^[A-Za-z0-9_-]{16,128}$/
@@ -51,7 +52,8 @@ describe('API layer', () => {
   afterEach(() => { vi.unstubAllGlobals(); resetApiSession() })
   it.each([
     ['patient registration', () => patientsApi.create({ firstName: 'A', lastName: 'B' }, 'patient-key-0123456789')],
-    ['encounter creation', () => encountersApi.create({ patientId: patient.id }, 'encounter-key-0123456789')],
+    ['admission', () => admissionsApi.admit({ patientId: patient.id, roomNumber: 'Room 1' }, 'admission-key-0123456789')],
+    ['encounter creation', () => encountersApi.create({ admissionId: admission.id }, 'encounter-key-0123456789')],
     ['broadcast', () => notificationsApi.broadcast({ title: 'T', message: 'M', audience: { type: 'ALL' } }, 'broadcast-key-0123456789')],
   ])('sends the caller’s key with CSRF on %s', async (_label, call) => {
     fetcher.mockResolvedValueOnce(csrf()).mockResolvedValueOnce(ok({}))
@@ -64,8 +66,9 @@ describe('API layer', () => {
     await patientsApi.create({ firstName: 'A', lastName: 'B' })
     await patientsApi.update(patient.id, { firstName: 'C' }); await patientsApi.archive(patient.id)
     await encountersApi.updateDraft(encounter, { clinicalNotes: 'x' }); await encountersApi.amend(encounter.id, { reason: 'r', content: 'c' })
-    await appointmentsApi.cancel(appointment.id, null); await notificationsApi.markRead(broadcastNotice.id); await notificationsApi.markAllRead()
-    expect(fetcher.mock.calls.slice(1).map((_call, index) => headerOf(fetcher, index + 1))).toEqual(Array(8).fill(null))
+    await admissionsApi.changeRoom(admission.id, { roomNumber: 'Room 2' }); await admissionsApi.discharge(admission.id)
+    await notificationsApi.markRead(broadcastNotice.id); await notificationsApi.markAllRead()
+    expect(fetcher.mock.calls.slice(1).map((_call, index) => headerOf(fetcher, index + 1))).toEqual(Array(9).fill(null))
   })
 })
 
@@ -88,7 +91,7 @@ describe('forms', () => {
     })
   }
   const keyOf = (mock: { mock: { calls: unknown[][] } }, index: number) => mock.mock.calls[index]![1] as string | undefined
-  const created: Patient = { id: 'patient-id', patientNumber: 'PT-1', firstName: 'Ama', middleName: null, lastName: 'Mensah', dateOfBirth: null, phone: null, archivedAt: null, createdAt: '2026-11-01T12:00:00Z', updatedAt: '2026-11-01T12:00:00Z' }
+  const created: Patient = { id: 'patient-id', patientNumber: 'PT-1', firstName: 'Ama', middleName: null, lastName: 'Mensah', dateOfBirth: null, phone: null, archivedAt: null, createdAt: '2026-11-01T12:00:00Z', updatedAt: '2026-11-01T12:00:00Z', currentAdmission: null }
 
   it('reuses the patient key for a deliberate retry after an unconfirmed save, and changes it with the form', async () => {
     const create = vi.spyOn(patientsApi, 'create').mockRejectedValueOnce(new TypeError('Failed to fetch')).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue({ patient: created })
@@ -122,21 +125,28 @@ describe('forms', () => {
     expect(keyOf(broadcast, 2)).not.toBe(keyOf(broadcast, 0)); expect(sent).toHaveBeenCalledOnce()
     expect(broadcast).toHaveBeenCalledTimes(3)
   })
-  it('sends a key for walk-in encounter creation and reuses it after an unconfirmed save', async () => {
+  it('sends a key for a new record on the admission and reuses it after an unconfirmed save', async () => {
     const create = vi.spyOn(encountersApi, 'create').mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue({ encounter })
-    await render(<EncounterForm user={doctor} patient={patient} onClose={vi.fn()} onSaved={vi.fn()} />)
-    await fill('clinicalNotes', 'Walk-in note'); await submit(); await submit()
-    expect(create.mock.calls[0]![0]).not.toHaveProperty('appointmentId')
+    await render(<EncounterForm user={doctor} patient={patient} admission={admission} onClose={vi.fn()} onSaved={vi.fn()} />)
+    await fill('clinicalNotes', 'Ward note'); await submit(); await submit()
+    expect(create.mock.calls[0]![0]).toMatchObject({ admissionId: admission.id }); expect(create.mock.calls[0]![0]).not.toHaveProperty('appointmentId')
     expect(keyOf(create, 0)).toMatch(serverPattern); expect(keyOf(create, 1)).toBe(keyOf(create, 0))
   })
-  it('sends a key for linked creation and keeps the existing-record recovery', async () => {
-    const create = vi.spyOn(encountersApi, 'create').mockRejectedValueOnce(new ApiError(409, 'raw', 'APPOINTMENT_ALREADY_HAS_ENCOUNTER')).mockResolvedValue({ encounter })
-    const openExisting = vi.fn()
-    await render(<EncounterForm user={doctor} patient={patient} appointment={eligibleAppointment} onOpenExisting={openExisting} onClose={vi.fn()} onSaved={vi.fn()} />)
-    await fill('clinicalNotes', 'Linked note'); await submit()
-    expect(create.mock.calls[0]![0]).toMatchObject({ appointmentId: eligibleAppointment.id }); expect(keyOf(create, 0)).toMatch(serverPattern)
-    expect(Array.from(host.querySelectorAll('button')).some((item) => item.textContent === 'Open existing clinical record')).toBe(true)
+  it('starts a new record key after a definite refusal of the admission', async () => {
+    const create = vi.spyOn(encountersApi, 'create').mockRejectedValueOnce(new ApiError(409, 'raw', 'ADMISSION_NOT_CURRENT')).mockResolvedValue({ encounter })
+    await render(<EncounterForm user={doctor} patient={patient} admission={admission} onClose={vi.fn()} onSaved={vi.fn()} />)
+    await fill('clinicalNotes', 'Ward note'); await submit()
+    expect(host.textContent).toContain('This admission has been discharged.')
     await submit(); expect(keyOf(create, 1)).not.toBe(keyOf(create, 0))
+  })
+  it('reuses the admission key after an unconfirmed admission, so the patient is admitted once', async () => {
+    const admit = vi.spyOn(admissionsApi, 'admit').mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue({ admission: { ...admission, createdAt: admission.admittedAt, updatedAt: admission.admittedAt, rooms: [] } })
+    const admitted = vi.fn()
+    await render(<AdmitDialog patient={patient} onClose={vi.fn()} onAdmitted={admitted} />)
+    await fill('roomNumber', 'Room 4'); await submit()
+    expect(host.textContent).toContain('The admission could not be confirmed. Select Save admission again without changing anything; the patient will not be admitted twice.')
+    await submit()
+    expect(keyOf(admit, 0)).toMatch(serverPattern); expect(keyOf(admit, 1)).toBe(keyOf(admit, 0)); expect(admitted).toHaveBeenCalledOnce()
   })
   it('sends no key when saving an existing draft', async () => {
     const update = vi.spyOn(encountersApi, 'updateDraft').mockResolvedValue({ encounter })

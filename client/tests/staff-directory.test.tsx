@@ -38,16 +38,24 @@ it('shows a contained loading state, then the server directory', async () => {
   expect(rows()).toHaveLength(3); expect(harness.host.querySelector('.staff-skeleton')).toBeNull()
   expect(directoryCalls()[0]![0]).toEqual({ page: 1, limit: 20 }); expect(directoryCalls()[0]![1]).toBeInstanceOf(AbortSignal)
 })
+it('shows when each person last used the system and signed in, or that they never signed in', async () => {
+  const seen = { ...officer, lastLoginAt: new Date(Date.now() - 3 * 3600000).toISOString(), lastActivityAt: new Date(Date.now() - 4 * 60000).toISOString() }
+  vi.mocked(staffApi.list).mockImplementation(async (query = {}) => query.limit === 1 ? staffPage([], 1, 2, 1) : staffPage([seen, { ...doctor, lastLoginAt: null, lastActivityAt: null }], 1, 2))
+  await render()
+  const cells = rows().map((row) => row.querySelector('.staff-last-seen')?.textContent?.replace(/ \([^)]*\)/g, ''))
+  expect(cells[0]).toMatch(/^4 min agoSigned in (Today|Yesterday), /); expect(cells[1]).toBe('Never signed in')
+})
 it('lists name, staff number, email, readable role and status, and marks the signed-in account', async () => {
   await render()
   expect(Array.from(harness.host.querySelectorAll('.staff-table th')).map((th) => [th.textContent, th.getAttribute('scope')])).toEqual(
-    [['Staff member', 'col'], ['Staff number', 'col'], ['Email', 'col'], ['Role', 'col'], ['Status', 'col'], ['Actions', 'col']])
-  expect(rows().map((row) => Array.from(row.cells).slice(1, 5).map((cell) => cell.textContent))).toEqual([
-    ['STF-ADMIN001', 'ada.admin@example.test', 'Admin', 'Active'],
-    ['STF-REC00002', 'rhea.records@example.test', 'Records Officer', 'Active'],
-    ['STF-DOC00003', 'dara.doctor@example.test', 'Doctor in Charge', 'Suspended'],
+    [['Staff member', 'col'], ['Staff number', 'col'], ['Role', 'col'], ['Status', 'col'], ['Last active', 'col'], ['Actions', 'col']])
+  expect(rows().map((row) => Array.from(row.cells).slice(1, 4).map((cell) => cell.textContent))).toEqual([
+    ['STF-ADMIN001', 'Administrator', 'Active'],
+    ['STF-REC00002', 'Records Officer', 'Active'],
+    ['STF-DOC00003', 'Medical Officer', 'Suspended'],
   ])
-  expect(rows()[0]!.cells[0]!.textContent).toBe('AAAda AdminYour account'); expect(rows()[1]!.textContent).not.toContain('Your account')
+  // The email sits under the name in the first column; staff numbers never wrap.
+  expect(rows()[0]!.cells[0]!.textContent).toBe('AAAda Adminada.admin@example.testYour account'); expect(rows()[1]!.querySelector('.staff-email')?.textContent).toBe('rhea.records@example.test'); expect(rows()[1]!.textContent).not.toContain('Your account')
   expect(text()).not.toMatch(/RECORDS_OFFICER|DOCTOR_IN_CHARGE|SUSPENDED|\bACTIVE\b/)
 })
 it('shows status in words with a decorative icon, not by colour alone', async () => {
@@ -87,7 +95,7 @@ it('filters by the server-supported role and status only, resetting to the first
   await fill('staffRole', 'DOCTOR_IN_CHARGE'); expect(lastQuery()).toEqual({ page: 1, limit: 20, role: 'DOCTOR_IN_CHARGE' })
   await fill('staffStatus', 'SUSPENDED'); expect(lastQuery()).toEqual({ page: 1, limit: 20, role: 'DOCTOR_IN_CHARGE', status: 'SUSPENDED' })
   expect(text()).toContain('45 staff accounts match these filters')
-  expect(Array.from(field<HTMLSelectElement>('staffRole').options).map((option) => option.textContent)).toEqual(['All roles', 'Admin', 'Records Officer', 'Doctor in Charge'])
+  expect(Array.from(field<HTMLSelectElement>('staffRole').options).map((option) => option.textContent)).toEqual(['All roles', 'Administrator', 'Records Officer', 'Medical Officer'])
   expect(Array.from(field<HTMLSelectElement>('staffStatus').options).map((option) => option.textContent)).toEqual(['All statuses', 'Pending', 'Active', 'Suspended', 'Disabled'])
   await click('Clear filters'); expect(lastQuery()).toEqual({ page: 1, limit: 20 })
   expect(harness.host.querySelectorAll('input')).toHaveLength(0)
@@ -118,7 +126,7 @@ it('shows a safe list error with its reference and recovers on Try again', async
   })
   await render()
   const alert = harness.host.querySelector('.staff-recovery [role="alert"]')!
-  expect(alert.textContent).toBe('Unable to contact the server. Please try again.Support reference: req-list-500')
+  expect(alert.textContent).toBe('Medicare could not complete this just now. Please try again in a moment.Support reference: req-list-500')
   expect(text()).not.toMatch(/relation|StaffUser/)
   vi.mocked(staffApi.list).mockImplementation(async (query = {}) => query.limit === 1 ? staffPage([], 1, 0, 1) : staffPage())
   await click('Try again'); expect(rows()).toHaveLength(3); expect(harness.host.querySelector('[role="alert"]')).toBeNull()
@@ -141,7 +149,7 @@ it('renders labelled cards alongside the table for narrow screens, switched by C
   const cards = Array.from(harness.host.querySelectorAll<HTMLElement>('.staff-cards > li > article'))
   expect(harness.host.querySelector('.staff-cards')?.getAttribute('aria-label')).toBe('Staff accounts')
   expect(cards.map((card) => document.getElementById(card.getAttribute('aria-labelledby')!)?.textContent)).toEqual(['Ada Admin', 'Rhea Records', 'Dara Doctor'])
-  expect(Array.from(cards[1]!.querySelectorAll('dt')).map((dt) => dt.textContent)).toEqual(['Staff number', 'Role', 'Status', 'Email'])
+  expect(Array.from(cards[1]!.querySelectorAll('dt')).map((dt) => dt.textContent)).toEqual(['Staff number', 'Role', 'Status', 'Last active', 'Email'])
   expect(cards[1]!.querySelector('button')?.getAttribute('aria-label')).toBe('Manage Rhea Records')
   const css = readFileSync(resolve('src/features/staff/staff.css'), 'utf8')
   expect(css).toMatch(/\.staff-cards \{ display: none;/); expect(css).toMatch(/@media \(max-width: 1100px\) \{\s*\.staff-table \{ display: none; \}\s*\.staff-cards \{ display: grid;/)
@@ -288,7 +296,7 @@ it('handles a refused create without local success', async () => {
   expect(harness.host.querySelector('.staff-notice')).toBeNull(); expect(harness.ended).not.toHaveBeenCalled()
 })
 it('creates staff for each role with its mapped enum', async () => {
-  for (const [label, role] of [['Admin', 'ADMIN'], ['Records Officer', 'RECORDS_OFFICER'], ['Doctor in Charge', 'DOCTOR_IN_CHARGE']] as const) {
+  for (const [label, role] of [['Admin', 'ADMIN'], ['Records Officer', 'RECORDS_OFFICER'], ['Medical Officer', 'DOCTOR_IN_CHARGE']] as const) {
     vi.mocked(staffApi.create).mockClear(); await render(); await openForm(); await completeForm(role)
     expect(harness.host.querySelector<HTMLInputElement>(`input[name="role"][value="${role}"]`)!.closest('label')!.textContent).toContain(label)
     await submit(); expect(vi.mocked(staffApi.create).mock.calls[0]![0].role).toBe(role)

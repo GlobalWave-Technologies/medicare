@@ -109,17 +109,22 @@ following, because such a role could switch off the clinical and audit protectio
 
 | Privilege | Tables |
 | --- | --- |
-| `SELECT` | Every application table |
-| `INSERT, UPDATE` | `StaffUser`, `StaffSession`, `Patient`, `Appointment`, `Encounter`, `NotificationRecipient` |
-| `INSERT` only | `AuditEvent`, `EncounterAmendment`, `Notification`, `IdempotencyRecord`, `EncounterComplaint`, `Diagnosis` |
-| `DELETE` | `EncounterComplaint`, `Diagnosis`, `IdempotencyRecord`, `StaffSession` |
+| `SELECT` | Every application table (`Appointment` is read-only history since Phase 19A) |
+| `INSERT, UPDATE` | `StaffUser`, `StaffSession`, `Patient`, `Admission`, `AdmissionRoomHistory`, `Encounter`, `NotificationRecipient`, `Medication` (catalog; no `DELETE`) |
+| `INSERT` only | `AuditEvent`, `EncounterAmendment`, `Notification`, `IdempotencyRecord`, `EncounterComplaint`, `Diagnosis`, `MedicationOrder` |
+| `DELETE` | `EncounterComplaint`, `Diagnosis`, `MedicationOrder`, `IdempotencyRecord`, `StaffSession` |
+| `USAGE` | The sequence `admission_number_seq` (draws admission numbers; cannot reset it) |
 | None | `_prisma_migrations`; no `TRUNCATE`, `TRIGGER`, schema `CREATE` or ownership |
+
+Because the script revokes everything first, re-running it after the Phase 19A upgrade removes
+the runtime role's earlier `INSERT` and `UPDATE` on `Appointment`.
 
 It is safe to rerun.
 
 **Verified:** the full application and both maintenance commands ran under this role. Every
 attempt by that role to bypass finalized-record, amendment, audit, notification or retry-record
-protection was refused (`server/tests/runtime-role.database.test.ts`).
+protection was refused, as were deleting or rewriting stays, room history, appointments or the
+admission number sequence (`server/tests/runtime-role.database.test.ts`).
 
 **Protect the owner.** It can disable triggers. Never give its credentials to the application or to
 the backup job.
@@ -139,6 +144,13 @@ the backup job.
 | Mutation idempotency | One enum and the `IdempotencyRecord` table with its checks, trigger and foreign keys |
 | Credential lifecycle enums | `PASSWORD_CHANGED` and `PASSWORD_RESET` audit actions and the `STAFF_CREATE` operation. Enum additions only |
 | Staff creation idempotency | A nullable `staffUserId` column, a unique index and a foreign key on `IdempotencyRecord`, and its resource check replaced |
+| Staff temporary password | `StaffUser."mustChangePassword"` boolean, `NOT NULL DEFAULT false`. Existing accounts keep their passwords; new and reset accounts are marked temporary by the application. Metadata-only change (no table rewrite); no new grants needed |
+| Admission enums (Phase 19A) | Admission audit actions, the `ADMISSION` entity type and the `ADMISSION_CREATE` operation. Enum additions only |
+| Staff activity enums (Phase 19D) | The `STAFF_SESSION_REVOKED` audit action. Enum addition only |
+| Staff session activity (Phase 19D) | `StaffSession.lastActivityAt` (not null, back-filled from the sign-in time, check that it is not before sign-in) and nullable `StaffUser.lastActivityAt` (back-filled from the last sign-in). No new grants |
+| Medication catalog enums (Phase 19B) | `MEDICATION_CREATED`, `MEDICATION_DEACTIVATED`, `MEDICATION_REACTIVATED` audit actions and the `MEDICATION` entity type. Enum additions only |
+| Medication catalog (Phase 19B) | `Medication` with a unique `lower(name)` index, name and timestamp triggers and the sixteen initial medicines; nullable `MedicationOrder.medicationId` (indexed, restrictive foreign key) and `strength`; a trigger requiring catalog medicines on new orders. **New grants needed** |
+| Admissions, discharge and medications (Phase 19A) | `Admission`, `AdmissionRoomHistory`, `MedicationOrder`, the admission number sequence and function, nullable `Encounter.admissionId` and `IdempotencyRecord.admissionId`, checks, the no-overlap exclusion constraint, partial unique indexes and triggers; the audit metadata function and the idempotency resource check are replaced. **New grants needed** |
 
 The last two migrations touch only the small `IdempotencyRecord` table, which holds at most 24
 hours of rows. The new foreign key briefly takes a lock on `StaffUser` while it validates, which
@@ -148,7 +160,10 @@ No migration deletes data. Other risk points:
 
 - the extension needs provider support;
 - existing overlapping active appointments would block the scheduling constraint;
-- index and constraint builds can lock tables on large data.
+- index and constraint builds can lock tables on large data;
+- the Phase 19A migration adds columns, foreign keys and triggers on `Encounter`, `Patient` and
+  `IdempotencyRecord`. The new columns are nullable and empty, so validation is quick, but each
+  statement briefly locks its table; deploy in a quiet window.
 
 Rehearse on the target PostgreSQL version. Never edit an applied migration.
 
@@ -238,6 +253,10 @@ backup roles, as for the primary database.
    psql -X -v ON_ERROR_STOP=1 -A -F ' ' -t -f server/ops/restore-check.sql "<connection>" > restore-check.txt
    ```
 
+   Since Phase 19A it also covers `Admission`, `AdmissionRoomHistory` and `MedicationOrder`,
+   and prints the admission number sequence position, so a restore that would reissue admission
+   numbers is caught.
+
 2. Start the built API against the restore with the runtime identity. Readiness must report 200.
 3. Sign in as each role. Open a finalized record and its amendments.
 4. Confirm the protections still hold: editing a finalized record is still refused.
@@ -315,9 +334,19 @@ Serve `client/dist` with these headers. The acceptance gateway used exactly thes
 | `/index.html`, `/` and every SPA fallback route | `no-cache` | Must pick up new asset names immediately |
 | `/theme-init.js` | `no-cache` | Not fingerprinted; runs before the first paint |
 | `/favicon.svg` | `no-cache` | Not fingerprinted |
+| `/sw.js` | `no-cache` | The service worker; a new release must be seen at once |
+| `/manifest.webmanifest` | `no-cache` | Install manifest; serve as `application/manifest+json` |
+| `/icons/*` | `no-cache` | Install icons; not fingerprinted |
 
-Send an `ETag` or `Last-Modified` so `no-cache` files revalidate cheaply (304). Do not add a
-service worker, and do not publish source maps or `.env` files.
+Send an `ETag` or `Last-Modified` so `no-cache` files revalidate cheaply (304). Do not publish
+source maps or `.env` files.
+
+**The service worker is part of each frontend release.** It caches only that release's static
+files and never API responses (see [installing Medicare](pwa-installation.md)).
+
+- **Keep the publish order:** publish `/sw.js` with `index.html`, after the fingerprinted assets.
+- **Open copies:** they show "An update to Medicare is available." and move to the new release
+  only when someone chooses to refresh.
 
 Set these response headers on the frontend:
 
@@ -415,6 +444,12 @@ instance**, or add a shared limiter store before scaling out.
    in step 1 of the deploy order into a new database and point the previous build at it.
    - The previous build tolerates both migrations added in this release: an extra nullable column
      and extra enum values.
+   - **Phase 19A:** the previous build starts against the migrated schema (new tables and nullable
+     columns only), but it still offers appointments, which the new grants make read-only. Re-run
+     the previous release's `runtime-grants.sql` to restore appointment writes. Stays recorded in
+     the meantime stay in the database but are invisible to that build, and the database still
+     refuses archiving a patient who is admitted. This rollback path has not been rehearsed;
+     rehearse it on staging before relying on it.
    - Restoring loses every change made after that backup. Decide with the hospital, and revoke
      restored sessions.
 5. Re-run readiness and the smoke test, then record what happened.
@@ -434,15 +469,64 @@ Automation could not cover these. Complete them on hospital devices before appro
   for it, so record whether it is usable.
 - **Safari:** the core workflows on the hospital's Apple devices, if any are used.
 - **Screen reader:** any screen reader staff rely on, across sign-in, navigation, a patient form,
-  an appointment form, a dialog, a finalized record, a notification, a staff action and a report.
+  the admit and discharge dialogs, a finalized record, a notification, a staff action and a report.
+  Include the "Change your temporary password" screen and the install offer.
+- **Installing:** installing from the browser's own control on the hospital's devices, opening the
+  installed app, signing in, a theme change and signing out. On iPhone and iPad use
+  **Add to Home Screen**.
+- **First sign-in:** a new account and a reset account each reach only the change screen until a
+  personal password is chosen.
+
+**Upgrading to the final interface release (Phase 19E):** client-only. There are no migrations,
+grant changes, API changes or new dependencies: publish the new `client/dist` (the API stays as it
+is). Browsers pick up the new build through the usual update notice. Rolling back means publishing the
+previous `client/dist`. Before client testing, walk through the
+[final product UI/UX review](final-product-ui-ux-review.md) checklist on the hospital's own devices.
+
+**Upgrading to the staff activity release (Phase 19D):** back up, run the two migrations (no grant
+changes), then publish the new API and `client/dist` together. Existing sessions keep working; their
+last activity starts at their sign-in time. Rolling back to the Phase 19C builds is safe against the
+migrated schema (the new columns are ignored). Confirm with the hospital that Staff Activity is used
+for operations in line with its staff privacy policy. See [Staff Activity](staff-activity-monitoring.md).
+
+**Upgrading to the dashboard and interface release (Phase 19C):** there are no migrations and no
+grant changes. The dashboard response changed shape, so publish the new `client/dist` and the new
+API together; an older open page shows "Figures unavailable" on the Overview until it updates (the
+update notice offers a reload). Rolling back is a plain redeploy of both previous builds. After
+deploying, open the Overview as each role and check that the chart shows the last 7 days. See
+[final UI/UX audit](final-ui-ux-audit.md).
+
+**Upgrading to the medication catalog release (Phase 19B):** back up, run the two migrations, re-run
+the grants script, then ask an administrator to review the initial catalog (sixteen medicines from
+the previous system) and add the hospital's other medicines before Medical Officers prescribe. See
+[medication catalog and prescribing](medication-catalog-prescribing.md).
+
+**Upgrading to the admissions release (Phase 19A):**
+
+1. Before the upgrade, list future appointments that are still scheduled (for example with a
+   read-only query on `Appointment` where `status` is `SCHEDULED` or `CONFIRMED` and
+   `"scheduledStart"` is in the future) and agree how the hospital will handle them. After the
+   upgrade staff can no longer see or change appointments; the rows stay in the database.
+2. Back up, run `npm run prisma:migrate:deploy` (two migrations), re-run the grants script and run
+   `restore-check.sql` once to confirm the new tables appear.
+3. Deploy the API, then the frontend. Patients who are in hospital at the time are not admitted
+   automatically: admit each one with their current room after the upgrade.
+4. Train staff with the updated [staff release guide](staff-release-guide.md) and
+   [admissions and discharge](admissions-discharge.md). The Medical Officer role is the existing
+   `DOCTOR_IN_CHARGE` accounts; nothing changes for them except the label.
+
+**Upgrading to the temporary-password release:** deploy the API (with its migration) before the
+frontend, as always. Accounts that existed before the upgrade are not asked to change their
+password. Only accounts created or reset afterwards are.
 
 ## Retention decisions
 
 Current behaviour:
 
-- **Hospital records:** patients are archived, never deleted. Appointments keep their history,
-  including cancellations. Finalized encounters cannot be edited; amendments append. Audit events
-  are append-only.
+- **Hospital records:** patients are archived, never deleted. Admissions and their room history
+  are permanent; discharge closes a stay but deletes nothing. Retired appointments are kept
+  read-only, including cancellations. Finalized encounters and their medication orders cannot be
+  edited; amendments append. Audit events are append-only.
 - **Technical rows that are pruned:** sessions are deleted after they expire, and retry records
   after 24 hours. Neither is part of the hospital record.
 

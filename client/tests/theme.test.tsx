@@ -15,7 +15,7 @@ import { dashboardFor } from './report-fixtures'
 import { contrast, hex, hue, sharedCss, themeNames, tokenBlocks } from './theme-tokens'
 
 vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({
-  id: '70000000-0000-4000-8000-000000000016', staffNumber: 'STF-THEME', firstName: 'Tess', lastName: 'Theme', email: 'tess@example.test', status: 'ACTIVE', role: 'ADMIN' }) }))
+  id: '70000000-0000-4000-8000-000000000016', staffNumber: 'STF-THEME', firstName: 'Tess', lastName: 'Theme', email: 'tess@example.test', status: 'ACTIVE', mustChangePassword: false, role: 'ADMIN' }) }))
 
 // A controllable stand-in for the operating-system colour-scheme setting.
 function systemScheme(dark: boolean) {
@@ -52,10 +52,11 @@ it('keeps orange for the brand and separate hues for every status meaning, in bo
   for (const theme of themeNames) {
     const t = tokens[theme]
     for (const name of ['brand', 'brand-strong', 'brand-accent', 'brand-mark', 'link', 'focus', 'chart-1']) expect([theme, name, within(t[name]!, 14, 32)]).toEqual([theme, name, true])
-    expect([theme, 'success', within(t.success!, 90, 170), within(t['mark-completed']!, 90, 170)]).toEqual([theme, 'success', true, true])
-    expect([theme, 'danger', within(t.danger!, 330, 10), within(t['danger-solid']!, 330, 10), within(t['mark-cancelled']!, 330, 10)]).toEqual([theme, 'danger', true, true, true])
-    expect([theme, 'warning', within(t.warning!, 35, 56), within(t['mark-no-show']!, 35, 56)]).toEqual([theme, 'warning', true, true])
-    expect([theme, 'info', within(t.info!, 195, 230), within(t['mark-scheduled']!, 195, 230)]).toEqual([theme, 'info', true, true])
+    expect([theme, 'success', within(t.success!, 90, 170)]).toEqual([theme, 'success', true])
+    expect([theme, 'danger', within(t.danger!, 330, 10), within(t['danger-solid']!, 330, 10)]).toEqual([theme, 'danger', true, true])
+    expect([theme, 'warning', within(t.warning!, 35, 56)]).toEqual([theme, 'warning', true])
+    expect([theme, 'info', within(t.info!, 195, 230), within(t['chart-2']!, 195, 230)]).toEqual([theme, 'info', true, true])
+    expect(Object.keys(t).some((name) => name.startsWith('mark-') || name === 'chart-3')).toBe(false)
     // A destructive action never looks like the ordinary orange primary action.
     const gap = Math.abs(hue(hex(t['danger-solid']!)) - 360 - hue(hex(t.brand!)))
     expect([theme, gap >= 25]).toEqual([theme, true])
@@ -75,7 +76,7 @@ it('passes contrast for orange buttons, links, focus rings and markers in both t
       expect([theme, 'focus', surface, ratio('focus', surface) >= 3]).toEqual([theme, 'focus', surface, true])
       expect([theme, 'link', surface, ratio('link', surface) >= 4.5]).toEqual([theme, 'link', surface, true])
     }
-    for (const mark of ['brand-accent', 'chart-1', 'chart-2', 'chart-3']) expect([theme, mark, ratio(mark, 'surface') >= 3]).toEqual([theme, mark, true])
+    for (const mark of ['brand-accent', 'chart-1', 'chart-2']) expect([theme, mark, ratio(mark, 'surface') >= 3]).toEqual([theme, mark, true])
     for (const text of ['deep', 'ink', 'muted']) expect([theme, text, ratio(text, 'unread-bg') >= 4.5]).toEqual([theme, text, true])
     expect([theme, ratio('login-text', 'login-panel') >= 4.5, ratio('login-muted', 'login-panel') >= 4.5, ratio('login-accent', 'login-panel') >= 3]).toEqual([theme, true, true, true])
   }
@@ -193,13 +194,17 @@ it('styles shells, dialogs, tables, fields, charts and unread notices from theme
   expect(rule('.sidebar {')).toContain('background: var(--surface)'); expect(rule('.sidebar nav button.active {')).toMatch(/background: var\(--brand-soft\);.*inset 3px 0 0 var\(--brand-accent\)/)
   expect(rule('.nav-badge {')).toContain('background: var(--brand); color: var(--on-brand)')
   expect(rule('.modal {')).toContain('background: var(--surface-raised)'); expect(rule('.modal-backdrop {')).toContain('background: var(--backdrop)')
-  expect(rule('.patients-table th, .appointment-table th, .staff-table th {')).toContain('background: var(--surface-muted)')
+  expect(rule('.patients-table th, .admission-table th, .staff-table th {')).toContain('background: var(--surface-muted)')
   expect(rule(':where(input:not([type="radio"], [type="checkbox"], [type="hidden"]), select, textarea) {')).toMatch(/border: 1px solid var\(--field-border\);.*background: var\(--surface\); color: var\(--deep\)/s)
   expect(css).toContain(':where(input, textarea)::placeholder { color: var(--muted); opacity: 1; }')
   expect(css).toContain(':where(input, textarea, select):-webkit-autofill { -webkit-text-fill-color: var(--deep); caret-color: var(--deep); box-shadow: 0 0 0 1000px var(--autofill) inset; }')
   expect(rule('.login-visual {')).toContain('background: var(--login-panel)')
   const reports = readFileSync(resolve('src/features/reports/reports.css'), 'utf8'), notices = readFileSync(resolve('src/features/notifications/notifications.css'), 'utf8')
-  expect(reports).toContain('.chart-bar.tone-primary { fill: var(--chart-1); } .chart-bar.tone-secondary { fill: var(--chart-2); } .chart-bar.tone-accent { fill: var(--chart-3); }')
+  expect(reports).toContain('.chart-bar.tone-primary { fill: var(--chart-1); } .chart-bar.tone-secondary { fill: var(--chart-2); }')
+  const dashboard = readFileSync(resolve('src/features/dashboard/dashboard.css'), 'utf8')
+  for (const rule of ['.series-admissions .activity-line { stroke: var(--chart-1); }', '.series-discharges .activity-line { stroke: var(--chart-2); stroke-dasharray: 6 4; }',
+    '.activity-grid { stroke: var(--chart-grid);', '.activity-axis { fill: var(--muted);', 'background: var(--surface-raised); box-shadow: var(--shadow-raised); color: var(--ink);']) expect([rule, dashboard.includes(rule)]).toEqual([rule, true])
+  expect(dashboard).not.toMatch(/#[0-9a-f]{3,8}\b/i)
   expect(reports).toContain('.chart-grid { stroke: var(--chart-grid);')
   expect(notices).toContain('.notification-item.is-unread { background: var(--unread-bg); box-shadow: inset 3px 0 0 var(--brand-accent); }')
   expect(notices).toContain('.notification-item.is-unread h3 { font-weight: 700; }')

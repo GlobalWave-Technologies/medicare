@@ -25,7 +25,8 @@ export function authRoutes(db: PrismaClient, env: Pick<Environment, 'NODE_ENV' |
     setSessionCookie(res, env.NODE_ENV, result.token, result.expiresAt)
     res.json({ success: true, data: { user: result.user } })
   })
-  router.use(requireAuth(db), requireCsrf(env.CLIENT_ORIGIN))
+  // The only routes a temporary password reaches: identity, CSRF, changing it, and signing out.
+  router.use(requireAuth(db, { allowTemporaryPassword: true }), requireCsrf(env.CLIENT_ORIGIN))
   router.get('/me', (req, res) => res.json({ success: true, data: { user: authContext(req).principal } }))
   router.get('/csrf', (req, res) => res.json({ success: true, data: { csrfToken: authContext(req).csrfToken } }))
   router.post('/change-password', rateLimit({

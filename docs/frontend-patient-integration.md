@@ -1,5 +1,15 @@
 # Frontend patient integration — Step 10
 
+> **Phase 19A update.** Patients is now also where stays are managed; see
+> [admissions and discharge](admissions-discharge.md). The list has **All patients**,
+> **Currently admitted** and **Discharged** views and an Admission column. Every role can
+> **Register patient**; the form asks for names and date of birth only (no phone), with
+> **Register & admit** continuing into the admission form. The patient record shows Identity,
+> the current admission (or "Not currently admitted" with **Admit patient**) and Previous
+> admissions. Archive is hidden while the patient is admitted, and a stored phone number is
+> shown only when one exists. The Medical Officer can register and admit but still cannot edit
+> or archive demographics. The rest of this page records Step 10.
+
 ## Baseline and scope
 
 The checkout already listed real patients, searched/paginated through the backend,

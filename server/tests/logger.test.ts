@@ -21,6 +21,9 @@ it('redacts common secret fields and strips error messages/stacks', () => {
     amendments: [{ content: 'amendment-secret' }], clinical: { content: 'clinical-content-secret', assessment: 'assessment-secret' },
     reason: 'appointment-reason-secret', notes: 'appointment-notes-secret', cancellationReason: 'cancellation-secret',
     appointment: { reason: 'appointment-payload-secret' }, scheduling: { notes: 'nested-appointment-secret' },
+    roomNumber: 'room-secret', dischargeNotes: 'discharge-secret', admission: { roomNumber: 'admission-payload-secret' },
+    transfer: { note: 'transfer-note-secret' }, medications: [{ medicine: 'medication-secret' }], order: { medicine: 'nested-medicine-secret', dose: 'dose-secret' },
+    strength: 'strength-secret', prescription: { frequency: 'frequency-secret', duration: 'duration-secret', instructions: 'instructions-secret' },
     firstName: 'patient-name-secret', dateOfBirth: 'dob-secret', phone: 'phone-secret', email: 'email-secret',
     demographics: { residentialAddress: 'address-secret', emergencyContact: 'contact-secret' },
     search: 'search-secret', patient: { clinicalNotes: 'patient-payload-secret' },
@@ -37,6 +40,8 @@ it('redacts common secret fields and strips error messages/stacks', () => {
   expect(output).not.toMatch(/notice-title-secret|notice-message-secret|notice-payload-secret|nested-title-secret|nested-message-secret/)
   expect(output).not.toMatch(/clinical-note-secret|history-summary-secret|treatment-plan-secret|complaint-secret|diagnosis-secret|amendment-secret|clinical-content-secret|assessment-secret/)
   expect(output).not.toMatch(/appointment-reason-secret|appointment-notes-secret|cancellation-secret|appointment-payload-secret|nested-appointment-secret/)
+  expect(output).not.toMatch(/room-secret|discharge-secret|admission-payload-secret|transfer-note-secret|medication-secret|nested-medicine-secret|dose-secret/)
+  expect(output).not.toMatch(/strength-secret|frequency-secret|duration-secret|instructions-secret/)
   expect(output).not.toMatch(/patient-name-secret|dob-secret|phone-secret|email-secret|address-secret|contact-secret|search-secret|patient-payload-secret/)
   expect(output).not.toMatch(/session-secret|session-hash-secret|csrf-secret|uppercase-cookie-secret|uppercase-auth-secret|uppercase-set-cookie-secret|nested-session-secret/)
   expect(output).not.toMatch(/password-secret|database-secret|token-secret|medical-secret|auth-secret|cookie-secret|body-secret|internal-secret|bootstrap-secret|hash-secret|test-db-secret/)

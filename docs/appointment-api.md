@@ -1,5 +1,10 @@
 # Appointment scheduling (Step 5)
 
+> **Retired.** Appointments were removed from Medicare when admissions and discharge were
+> introduced. The `/api/v1/appointments` routes no longer exist, and the `Appointment` table is kept
+> as read-only history. This page describes the retired feature for reference only; see
+> [admissions and discharge](admissions-discharge.md) for the current workflow.
+
 Step 7 update: [internal notifications](notifications-api.md) now add required,
 transactional generic notices for assignment, actual rescheduling/reassignment
 and first cancellation. Eligible recipients are active doctors; null/inactive/

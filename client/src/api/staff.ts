@@ -5,6 +5,8 @@ export type StaffStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'DISABLED'
 export type StaffMember = {
   id: string; staffNumber: string; firstName: string; lastName: string; email: string
   role: BackendRole; status: StaffStatus
+  // Directory list and detail only: when the person last signed in and last used the system.
+  lastLoginAt?: string | null; lastActivityAt?: string | null
 }
 export type StaffPagination = { page: number; limit: number; total: number; totalPages: number }
 export type StaffPage = { users: StaffMember[]; pagination: StaffPagination }
@@ -27,7 +29,10 @@ function member(value: unknown): StaffMember {
   if (typeof id !== 'string' || typeof staffNumber !== 'string' || typeof firstName !== 'string'
     || typeof lastName !== 'string' || typeof email !== 'string'
     || !staffRoles.includes(role as BackendRole) || !staffStatuses.includes(status as StaffStatus)) throw invalid()
-  return { id, staffNumber, firstName, lastName, email, role: role as BackendRole, status: status as StaffStatus }
+  const times = ['lastLoginAt', 'lastActivityAt'] as const
+  for (const key of times) if (key in value && value[key] !== null && (typeof value[key] !== 'string' || !Number.isFinite(Date.parse(value[key] as string)))) throw invalid()
+  return { id, staffNumber, firstName, lastName, email, role: role as BackendRole, status: status as StaffStatus,
+    ...Object.fromEntries(times.filter((key) => key in value).map((key) => [key, value[key] as string | null])) }
 }
 function result(data: unknown): StaffResult {
   if (!isRecord(data)) throw invalid()

@@ -1,26 +1,39 @@
 # Medicare - Hospital Records
 
-React and TypeScript frontend for hospital records, patients, appointments,
-reports, and notifications, with an Express/PostgreSQL backend.
+React and TypeScript frontend for hospital records: patients, admissions and discharge,
+clinical records, reports and notifications, with an Express/PostgreSQL backend.
 [Frontend authentication](docs/frontend-auth-integration.md) uses real staff
 credentials, HttpOnly sessions, backend roles and CSRF-protected logout.
 The [patient frontend](docs/frontend-patient-integration.md) supports listing,
 search, registration, detail, editing, archive and reactivation with role-aware actions.
-The [appointment frontend](docs/frontend-appointment-integration.md) supports real
-schedule search, filters, booking, detail, rescheduling, status changes and
-cancellation, with local-time conversion and doctor own-assignment scope.
-The [clinical frontend](docs/frontend-clinical-integration.md) supports doctor-only
-history, encounters, draft editing, finalization and permanent amendments.
+[Admissions and discharge](docs/admissions-discharge.md) covers hospital stays: register and
+admit, room changes with history, the Medical Officer's admission-scoped medical record, structured
+medication orders and an atomic discharge that never deletes anything. Appointments have been retired.
+[Medication catalog and prescribing](docs/medication-catalog-prescribing.md) covers the controlled medicine
+list Medical Officers prescribe from (searchable dropdown, strength, dose, route, frequency, duration),
+draft-only editing, permanent finalized orders, medication history by admission and the Admin-only
+Medication Catalog. Prescribing is admission- and clinical-record-based, never appointment-based.
+The [final UI/UX audit](docs/final-ui-ux-audit.md) describes the live admissions and discharges chart
+on the Overview (counted from the database, refreshed every minute while open), the simplified
+dashboard cards, full-name patient search and the screen-by-screen polish before client testing.
+The [final product UI/UX review](docs/final-product-ui-ux-review.md) records the whole-product
+refinement before client testing: the issues found (P0–P3), the fixes, screenshots, accessibility,
+responsive and dark-mode results and the readiness verdict.
+[Staff Activity](docs/staff-activity-monitoring.md) gives administrators a privacy-safe view of who is
+signed in, when staff last used the system and recent actions in plain words, with ending sessions;
+it never shows clinical content or patient identifiers.
+The [clinical frontend](docs/frontend-clinical-integration.md) supports Medical Officer-only
+history, clinical records on a current admission, draft editing, finalization and permanent amendments.
 The [notification frontend](docs/frontend-notification-integration.md) provides each
-staff member's own inbox, a server-backed unread badge, read state, appointment links
-and administrator broadcasts.
+staff member's own inbox, a server-backed unread badge, read state and administrator broadcasts.
 The [staff administration frontend](docs/frontend-staff-administration.md) gives
 administrators a Staff & Access workspace to add accounts, change roles, suspend,
 reactivate or permanently disable access and sign out a person's sessions.
 The [dashboard and reports frontend](docs/frontend-dashboard-reports.md) gives each role a
-server-chosen Overview and the reports it may read. Admins and Records Officers get patient
-and appointment activity; doctors get their own clinical activity. Periods use UTC calendar
-dates, and every figure comes from the aggregate API, with no demonstration data or exports.
+server-chosen Overview with current admissions, admissions and discharges. Admins and Records
+Officers also get the patient registration and admissions reports; Medical Officers see their own
+clinical activity on the Overview. Periods use UTC calendar dates, and every figure comes from the
+aggregate API, with no demonstration data or exports.
 See the [product stabilization audit](docs/product-ui-ux-audit.md) for fixes, verification and remaining release requirements.
 The [final UI/UX review](docs/final-ui-ux-review.md) records the whole-product consistency pass:
 one shared visual system, one Medicare wordmark, consistent dialogs, statuses, forms and
@@ -34,13 +47,15 @@ lifecycle, sessions, cookies, proxy trust, headers, database roles and logging; 
 (`server/ops/runtime-grants.sql`), scheduled maintenance, backups, restores and monitoring.
 [Final release acceptance](docs/final-release-acceptance.md) records the staging acceptance, its
 results, the open conditions and the release decision.
-The backend includes staff authentication and patient demographic APIs, plus
-[appointment scheduling](docs/appointment-api.md).
-The [clinical records API](docs/clinical-records-api.md) adds doctor-authored drafts,
+[First-login security](docs/first-login-security.md) covers temporary passwords and
+administrator-assisted recovery; [installing Medicare](docs/pwa-installation.md) covers the
+installable app, its static-only service worker, offline behaviour and updates.
+The backend includes staff authentication, patient demographic and admission APIs.
+The [clinical records API](docs/clinical-records-api.md) adds Medical Officer-authored drafts,
 finalization, immutable history and append-only amendments.
 The [notification API](docs/notifications-api.md) adds personal staff inboxes,
-read state, admin broadcasts and transactional appointment notices.
-Patient registration, encounter creation and broadcasts accept an
+read state and admin broadcasts.
+Patient registration, admission, encounter creation and broadcasts accept an
 [Idempotency-Key](docs/idempotency.md) so a resent request cannot write twice.
 
 ## Development
@@ -62,7 +77,7 @@ npm run dev
 | `npm run lint` | Check both workspaces |
 | `npm run typecheck` | Check both TypeScript projects and server tests/configuration |
 | `npm run test` | Run server tests without a database |
-| `npm run test:client` | Run frontend authentication, patient, appointment and clinical tests |
+| `npm run test:client` | Run frontend tests |
 | `npm run test:database` | Run isolated PostgreSQL integration tests |
 | `npm run preview` | Preview the built frontend |
 | `npm run start:server` | Start the compiled API |
@@ -75,11 +90,12 @@ client/
   public/         Static public assets
   src/
     app/          Application composition and navigation
-    assets/       Bundled assets
+    api/          API calls with response checks
     components/   Shared UI and branding
-    features/     Auth, dashboard, patients, appointments, records,
-                  reports, and notifications
-    mocks/        Historical test fixtures (not imported by the app)
+    features/     Auth, dashboard, patients, admissions, records, medications,
+                  reports, notifications, staff and staff activity
+    lib/          Shared formatting and validation helpers
+    pwa/          Install offer, offline screen and update notice
     styles/       Application and global styles
     types/        Shared frontend types
     main.tsx      Browser entry point

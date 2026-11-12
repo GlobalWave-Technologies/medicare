@@ -12,9 +12,9 @@ import { isolatedTestEnvironment, testDatabase } from './helpers/database.js'
 import type { StaffRole } from '../src/generated/prisma/client.js'
 
 const db = testDatabase(), env = isolatedTestEnvironment()
-const patients = '/api/v1/patients', broadcasts = '/api/v1/notifications/broadcast', encounters = '/api/v1/encounters'
+const patients = '/api/v1/patients', broadcasts = '/api/v1/notifications/broadcast', encounters = '/api/v1/encounters', admissions = '/api/v1/admissions'
 type Actor = { id: string; cookie: string; csrf: string; sessionId: string }
-let hash: string, logs = '', slot = 0, app: ReturnType<typeof createApp>
+let hash: string, logs = '', app: ReturnType<typeof createApp>
 const actors = new Map<StaffRole, Actor>()
 const actor = (role: StaffRole = 'ADMIN') => actors.get(role)!
 async function newActor(role: StaffRole = 'ADMIN'): Promise<Actor> {
@@ -35,17 +35,21 @@ function post(path: string, body: object, who: Actor, key?: string, csrf: string
 const person = (overrides: object = {}) => ({ firstName: 'Synthetic', lastName: `Replay-${randomUUID()}`, ...overrides })
 const records = (where: object = {}) => db.idempotencyRecord.findMany({ where })
 const audits = (entityId: string) => db.auditEvent.findMany({ where: { entityId } })
-async function clinical(overrides: object = {}) {
+// A new clinical record is opened on a current admission.
+async function admitted() {
   const patient = await db.patient.create({ data: { firstName: 'Synthetic', lastName: `Clinical-${randomUUID()}`, createdById: actor().id } })
-  return { patientId: patient.id, occurredAt: new Date(Date.now() - 60000).toISOString(), clinicalNotes: 'Private walk-in narrative',
+  const at = new Date(Date.now() - 3600000)
+  return db.admission.create({ data: { patientId: patient.id, roomNumber: 'Ward B - Bed 2', admittedAt: at, admittedById: actor().id,
+    rooms: { create: { roomNumber: 'Ward B - Bed 2', assignedAt: at, assignedById: actor().id } } } })
+}
+async function clinical(overrides: object = {}) {
+  return { admissionId: (await admitted()).id, occurredAt: new Date(Date.now() - 60000).toISOString(), clinicalNotes: 'Private ward narrative',
     complaints: [{ description: 'Private complaint one' }, { description: 'Private complaint two' }],
-    diagnoses: [{ description: 'Private diagnosis', code: 'Local-9', notes: 'Private diagnostic notes' }], ...overrides }
+    diagnoses: [{ description: 'Private diagnosis', code: 'Local-9', notes: 'Private diagnostic notes' }],
+    medications: [{ medicationId: (await db.medication.findFirstOrThrow({ where: { name: 'Ibuprofen' } })).id, strength: '200 mg', dose: '1 tablet',
+      route: 'Oral', frequency: 'Three times daily' }], ...overrides }
 }
-async function checkedIn(patientId: string, who = actor('DOCTOR_IN_CHARGE')) {
-  const start = Date.now() - (++slot * 3600000)
-  return db.appointment.create({ data: { patientId, clinicianId: who.id, type: 'CONSULTATION', status: 'CHECKED_IN', createdById: actor().id,
-    scheduledStart: new Date(start), scheduledEnd: new Date(start + 1800000) } })
-}
+const unadmitted = async () => (await db.patient.create({ data: { firstName: 'Synthetic', lastName: `Admit-${randomUUID()}`, createdById: actor().id } })).id
 const notice = (audience: object = { type: 'ALL' }, overrides: object = {}) => ({ title: `Replay notice ${randomUUID()}`, message: 'Private broadcast body for staff', audience, ...overrides })
 async function failing(table: string, operation: () => Promise<void>) {
   await db.$executeRaw`INSERT INTO test_idempotency_failure VALUES (${table})`
@@ -59,7 +63,7 @@ beforeAll(async () => {
   await db.$executeRawUnsafe(`CREATE FUNCTION test_idempotency_failure_fn() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN IF EXISTS (SELECT 1 FROM test_idempotency_failure WHERE flag = TG_TABLE_NAME)
       THEN RAISE EXCEPTION 'private idempotency SQL'; END IF; RETURN NEW; END $$`)
-  for (const table of ['IdempotencyRecord', 'AuditEvent', 'NotificationRecipient', 'Patient', 'Encounter']) {
+  for (const table of ['IdempotencyRecord', 'AuditEvent', 'NotificationRecipient', 'Patient', 'Encounter', 'Admission', 'AdmissionRoomHistory']) {
     await db.$executeRawUnsafe(`CREATE TRIGGER test_fail_idempotency BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION test_idempotency_failure_fn()`)
   }
 })
@@ -179,13 +183,13 @@ describe('broadcast creation', () => {
 })
 
 describe('encounter creation', () => {
-  it('replays a walk-in encounter with one record and one clinical audit', async () => {
+  it('replays an admission encounter with one record and one clinical audit', async () => {
     const key = randomUUID(), body = await clinical(), doctor = actor('DOCTOR_IN_CHARGE')
     const first = await post(encounters, body, doctor, key), again = await post(encounters, body, doctor, key)
     expect(first.status).toBe(201); expect(again.status).toBe(201); expect(again.headers['idempotency-replayed']).toBe('true')
     expect(again.body.data.encounter.id).toBe(first.body.data.encounter.id)
     expect(again.body.data.encounter.complaints.map((value: { description: string }) => value.description)).toEqual(['Private complaint one', 'Private complaint two'])
-    expect(await db.encounter.count({ where: { patientId: body.patientId } })).toBe(1)
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(1)
     expect((await audits(first.body.data.encounter.id)).map((event) => event.action)).toEqual(['MEDICAL_RECORD_CREATED'])
   })
   it('matches the same instant written with a different offset', async () => {
@@ -200,32 +204,66 @@ describe('encounter creation', () => {
     expect((await post(encounters, body, actor('DOCTOR_IN_CHARGE'), key)).status).toBe(201)
     const changed = await post(encounters, { ...body, complaints: [{ description: 'Private complaint two' }, { description: 'Private complaint one' }] }, actor('DOCTOR_IN_CHARGE'), key)
     expect(changed.status).toBe(409); expect(changed.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED')
-    expect(await db.encounter.count({ where: { patientId: body.patientId } })).toBe(1)
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(1)
   })
   it('creates one encounter for concurrent same-key requests', async () => {
     const key = randomUUID(), body = await clinical()
     const responses = await Promise.all(Array.from({ length: 5 }, () => post(encounters, body, actor('DOCTOR_IN_CHARGE'), key)))
     expect(responses.map((response) => response.status)).toEqual(Array(5).fill(201))
-    expect(await db.encounter.count({ where: { patientId: body.patientId } })).toBe(1)
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(1)
     expect(await audits(responses[0]!.body.data.encounter.id)).toHaveLength(1)
   })
-  it('keeps one encounter per appointment while replaying a linked creation', async () => {
-    const body = await clinical(), linked = await checkedIn(body.patientId), key = randomUUID()
-    const first = await post(encounters, { ...body, appointmentId: linked.id }, actor('DOCTOR_IN_CHARGE'), key)
-    const again = await post(encounters, { ...body, appointmentId: linked.id }, actor('DOCTOR_IN_CHARGE'), key)
-    expect(first.status).toBe(201); expect(again.body.data.encounter.id).toBe(first.body.data.encounter.id)
-    for (const other of [randomUUID(), undefined]) {
-      const second = await post(encounters, { ...body, appointmentId: linked.id }, actor('DOCTOR_IN_CHARGE'), other)
-      expect(second.status).toBe(409); expect(second.body.error.code).toBe('APPOINTMENT_ALREADY_HAS_ENCOUNTER')
-    }
-    expect(await db.encounter.count({ where: { appointmentId: linked.id } })).toBe(1)
-  })
-  it('replays even after the patient is archived, but a new key is refused', async () => {
+  it('replays even after the admission is discharged, but a new key is refused', async () => {
     const key = randomUUID(), body = await clinical()
     const first = await post(encounters, body, actor('DOCTOR_IN_CHARGE'), key)
-    await db.patient.update({ where: { id: body.patientId }, data: { archivedAt: new Date() } })
+    const at = new Date()
+    await db.$transaction([
+      db.encounter.update({ where: { id: first.body.data.encounter.id }, data: { status: 'REVIEWED', reviewedAt: at } }),
+      db.admissionRoomHistory.updateMany({ where: { admissionId: body.admissionId, endedAt: null }, data: { endedAt: at } }),
+      db.admission.update({ where: { id: body.admissionId }, data: { status: 'DISCHARGED', dischargedAt: at, dischargedById: actor('DOCTOR_IN_CHARGE').id } }),
+    ])
     expect((await post(encounters, body, actor('DOCTOR_IN_CHARGE'), key)).body.data.encounter.id).toBe(first.body.data.encounter.id)
-    expect((await post(encounters, body, actor('DOCTOR_IN_CHARGE'), randomUUID())).body.error.code).toBe('PATIENT_ARCHIVED')
+    expect((await post(encounters, body, actor('DOCTOR_IN_CHARGE'), randomUUID())).body.error.code).toBe('ADMISSION_NOT_CURRENT')
+  })
+})
+
+describe('admission', () => {
+  it('replays an admission with one stay, one room assignment and one audit', async () => {
+    const key = randomUUID(), body = { patientId: await unadmitted(), roomNumber: 'Ward A - Bed 6' }
+    const first = await post(admissions, body, actor('RECORDS_OFFICER'), key), again = await post(admissions, body, actor('RECORDS_OFFICER'), key)
+    expect([first.status, again.status]).toEqual([201, 201]); expect(again.headers['idempotency-replayed']).toBe('true')
+    expect(again.body.data.admission).toEqual(first.body.data.admission)
+    expect(await db.admission.count({ where: { patientId: body.patientId } })).toBe(1)
+    expect(await db.admissionRoomHistory.count({ where: { admissionId: first.body.data.admission.id } })).toBe(1)
+    expect((await audits(first.body.data.admission.id)).map((event) => event.action)).toEqual(['PATIENT_ADMITTED'])
+    const [stored] = await records({ admissionId: first.body.data.admission.id })
+    expect(stored).toMatchObject({ operation: 'ADMISSION_CREATE', patientId: null, encounterId: null, notificationId: null, staffUserId: null })
+  })
+  it('refuses a changed room under the same key, and a second admission under a new key', async () => {
+    const key = randomUUID(), body = { patientId: await unadmitted(), roomNumber: 'Room 4' }
+    expect((await post(admissions, body, actor(), key)).status).toBe(201)
+    const changed = await post(admissions, { ...body, roomNumber: 'Room 5' }, actor(), key)
+    expect([changed.status, changed.body.error.code]).toEqual([409, 'IDEMPOTENCY_KEY_REUSED'])
+    const second = await post(admissions, body, actor(), randomUUID())
+    expect([second.status, second.body.error.code]).toEqual([409, 'PATIENT_ALREADY_ADMITTED'])
+    expect(await db.admission.count({ where: { patientId: body.patientId } })).toBe(1)
+  })
+  it('creates one admission for concurrent same-key and different-key requests', async () => {
+    const key = randomUUID(), body = { patientId: await unadmitted(), roomNumber: 'Male Ward 2' }
+    const same = await Promise.all(Array.from({ length: 4 }, () => post(admissions, body, actor('DOCTOR_IN_CHARGE'), key)))
+    expect(same.map((response) => response.status)).toEqual(Array(4).fill(201))
+    expect(new Set(same.map((response) => response.body.data.admission.id)).size).toBe(1)
+    const other = { patientId: await unadmitted(), roomNumber: 'Male Ward 3' }
+    const distinct = await Promise.all(Array.from({ length: 4 }, () => post(admissions, other, actor('DOCTOR_IN_CHARGE'), randomUUID())))
+    expect(distinct.map((response) => response.status).sort()).toEqual([201, 409, 409, 409])
+    expect(distinct.filter((response) => response.status === 409).every((response) => response.body.error.code === 'PATIENT_ALREADY_ADMITTED')).toBe(true)
+    expect(await db.admission.count({ where: { patientId: { in: [body.patientId, other.patientId] } } })).toBe(2)
+  })
+  it.each([['IdempotencyRecord'], ['AuditEvent'], ['Admission'], ['AdmissionRoomHistory']])('rolls back the admission when %s fails', async (table) => {
+    const key = randomUUID(), body = { patientId: await unadmitted(), roomNumber: 'Private Room 1' }
+    await failing(table, async () => { expect((await post(admissions, body, actor(), key)).status).toBe(500) })
+    expect(await db.admission.count({ where: { patientId: body.patientId } })).toBe(0)
+    expect((await post(admissions, body, actor(), key)).status).toBe(201)
   })
 })
 
@@ -297,7 +335,7 @@ describe('transactions', () => {
   it.each([['IdempotencyRecord'], ['AuditEvent'], ['Encounter']])('rolls back the encounter when %s fails', async (table) => {
     const key = randomUUID(), body = await clinical()
     await failing(table, async () => { expect((await post(encounters, body, actor('DOCTOR_IN_CHARGE'), key)).status).toBe(500) })
-    expect(await db.encounter.count({ where: { patientId: body.patientId } })).toBe(0)
+    expect(await db.encounter.count({ where: { admissionId: body.admissionId } })).toBe(0)
     expect((await post(encounters, body, actor('DOCTOR_IN_CHARGE'), key)).status).toBe(201)
   })
 })
@@ -308,15 +346,16 @@ describe('privacy, logging and storage integrity', () => {
     const created = await post(patients, body, actor(), key)
     const visit = await clinical(), encounter = await post(encounters, visit, actor('DOCTOR_IN_CHARGE'), randomUUID())
     const sent = await post(broadcasts, notice(), actor(), randomUUID())
+    const stay = await post(admissions, { patientId: await unadmitted(), roomNumber: 'PrivateRoomLabel' }, actor(), randomUUID())
     const rows = await db.$queryRaw<Array<{ row: string }>>`SELECT row_to_json(r)::text AS row FROM "IdempotencyRecord" r
       WHERE r."patientId" = ${created.body.data.patient.id}::uuid OR r."encounterId" = ${encounter.body.data.encounter.id}::uuid
-        OR r."notificationId" = ${sent.body.data.notification.id}::uuid`
-    expect(rows).toHaveLength(3)
+        OR r."notificationId" = ${sent.body.data.notification.id}::uuid OR r."admissionId" = ${stay.body.data.admission.id}::uuid`
+    expect(rows).toHaveLength(4)
     const stored = rows.map((value) => value.row).join('\n')
     expect(stored).not.toMatch(new RegExp([key, 'PrivateGiven', body.lastName, '1991-03-03', '233205554443', 'Private', 'broadcast body', 'Replay notice'].join('|')))
     for (const value of rows.map((item) => JSON.parse(item.row) as Record<string, string>)) {
       expect(value.keyHash).toMatch(/^[0-9a-f]{64}$/); expect(value.requestHash).toMatch(/^[0-9a-f]{64}$/)
-      expect(Object.keys(value).sort()).toEqual(['createdAt', 'encounterId', 'expiresAt', 'id', 'keyHash', 'notificationId', 'operation', 'patientId', 'principalId', 'requestHash', 'staffUserId'])
+      expect(Object.keys(value).sort()).toEqual(['admissionId', 'createdAt', 'encounterId', 'expiresAt', 'id', 'keyHash', 'notificationId', 'operation', 'patientId', 'principalId', 'requestHash', 'staffUserId'])
     }
   })
   it('logs replays by operation only, without the key or payload', async () => {
@@ -332,6 +371,10 @@ describe('privacy, logging and storage integrity', () => {
     await expect(db.idempotencyRecord.update({ where: { id: stored!.id }, data: { expiresAt: new Date(Date.now() + 864e5 * 30) } })).rejects.toThrow()
     const base = { principalId: actor().id, keyHash: 'a'.repeat(64), requestHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3600000) }
     await expect(db.idempotencyRecord.create({ data: { ...base, operation: 'ENCOUNTER_CREATE', patientId: (await db.patient.create({ data: { ...person(), createdById: actor().id } })).id } })).rejects.toThrow()
+    const stay = await admitted()
+    await expect(db.idempotencyRecord.create({ data: { ...base, operation: 'PATIENT_CREATE', admissionId: stay.id } })).rejects.toThrow()
+    await expect(db.idempotencyRecord.create({ data: { ...base, operation: 'ADMISSION_CREATE', patientId: stay.patientId } })).rejects.toThrow()
+    await expect(db.idempotencyRecord.create({ data: { ...base, operation: 'ADMISSION_CREATE', admissionId: stay.id, patientId: stay.patientId } })).rejects.toThrow()
     await expect(db.idempotencyRecord.create({ data: { ...base, keyHash: 'raw-key-not-a-digest', operation: 'PATIENT_CREATE', patientId: (await db.patient.create({ data: { ...person(), createdById: actor().id } })).id } })).rejects.toThrow()
     await expect(db.idempotencyRecord.create({ data: { ...base, operation: 'PATIENT_CREATE', expiresAt: new Date(Date.now() - 1000), patientId: (await db.patient.create({ data: { ...person(), createdById: actor().id } })).id } })).rejects.toThrow()
   })

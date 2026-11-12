@@ -1,15 +1,15 @@
 import { ApiError, isRecord, mutation, request } from './client'
 import type { BackendRole } from './auth'
-import type { AppointmentPagination } from './appointments'
+import type { Pagination } from './common'
 
 export type NotificationType = 'DIRECT' | 'BROADCAST'
-// APPOINTMENT is the only target the server issues today; other types are shown without an action.
+// Only past appointment notices carry a target (APPOINTMENT); appointments are retired, so no action is offered.
 export type NotificationTarget = { type: string; id: string }
 export type NotificationContent = {
   id: string; type: NotificationType; title: string; message: string; createdAt: string; target: NotificationTarget | null
 }
 export type InboxNotification = NotificationContent & { readAt: string | null }
-export type NotificationPage = { items: InboxNotification[]; pagination: AppointmentPagination }
+export type NotificationPage = { items: InboxNotification[]; pagination: Pagination }
 export type NotificationQuery = { page?: number; limit?: number; read?: boolean; type?: NotificationType }
 export type BroadcastAudience = { type: 'ALL' } | { type: 'ROLE'; role: BackendRole }
 export type BroadcastInput = { title: string; message: string; audience: BroadcastAudience }

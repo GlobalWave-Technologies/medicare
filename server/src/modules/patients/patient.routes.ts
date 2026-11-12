@@ -8,9 +8,9 @@ import { createPatientSchema, updatePatientSchema, patientIdSchema, patientQuery
 import { createPatient, listPatients, getPatientById, updatePatient, archivePatient, reactivatePatient, patientFingerprint } from './patient.service.js'
 import { idempotencyScope, markReplay } from '../../shared/idempotency/idempotency.js'
 
-import { encounterHistoryParamsSchema, encounterHistoryQuerySchema } from '../encounters/encounter.validation.js'
-import { listEncounters } from '../encounters/encounter.service.js'
-import { toEncounterSummary } from '../encounters/encounter.dto.js'
+import { encounterHistoryParamsSchema, encounterHistoryQuerySchema, medicationHistoryQuerySchema } from '../encounters/encounter.validation.js'
+import { listEncounters, listMedicationHistory } from '../encounters/encounter.service.js'
+import { toEncounterSummary, toMedicationHistoryItem } from '../encounters/encounter.dto.js'
 
 export function patientRoutes(db: PrismaClient, origin: string) {
   const router = Router()
@@ -20,6 +20,11 @@ export function patientRoutes(db: PrismaClient, origin: string) {
     const result = await listEncounters(db, authContext(req), auditContext(req), encounterHistoryQuerySchema.parse(req.query),
       encounterHistoryParamsSchema.parse(req.params).patientId)
     res.json({ success: true, data: { items: result.items.map(toEncounterSummary), pagination: result.pagination } })
+  })
+  router.get('/:patientId/medications', requirePermission('CLINICAL_RECORD_READ'), async (req, res) => {
+    const result = await listMedicationHistory(db, authContext(req), auditContext(req), encounterHistoryParamsSchema.parse(req.params).patientId,
+      medicationHistoryQuerySchema.parse(req.query))
+    res.json({ success: true, data: { items: result.items.map(toMedicationHistoryItem), pagination: result.pagination } })
   })
   router.post('/', requirePermission('PATIENT_CREATE'), async (req, res) => {
     const auth = authContext(req), input = createPatientSchema.parse(req.body)

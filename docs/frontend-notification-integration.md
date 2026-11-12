@@ -1,5 +1,12 @@
 # Step 13 — Notifications frontend integration
 
+> **Phase 19A update.** Appointments were retired ([admissions and discharge](admissions-discharge.md)).
+> Notices with an appointment target now show a **Past appointment** tag in the list and, in
+> detail, "This notice was about an appointment. Appointments are no longer used, so there is
+> nothing to open." There is no **View appointment** action. Nothing creates notices
+> automatically any more; admissions, room changes and discharges send none. The rest of this
+> page records Step 13.
+
 ## Scope and findings
 
 Step 13 replaces the Notifications availability panel with a notification center
@@ -132,9 +139,9 @@ the server's `updated` value ("3 notifications marked as read."), reloads page 1
 the current filter (an Unread view becomes "No unread notifications.") and
 refreshes the count. Notices remain in the inbox.
 
-## Appointment targets
+## Appointment targets (retired)
 
-Only `target.type === 'APPOINTMENT'` produces an action. **View appointment** closes
+Retired in Phase 19A; kept for reference. Only `target.type === 'APPOINTMENT'` produces an action. **View appointment** closes
 the dialog and opens the existing `AppointmentDetail` for that ID. It uses the
 normal appointment API and authorization, with a **Back to Notifications** button.
 The notification flow fetches no patient, encounter or other details to decorate
@@ -182,7 +189,9 @@ Title and message are rendered as ordinary React text. There is no
 containing `<img onerror>` or `<script>` display as literal text and do not
 execute. Notification content and read state live only in component memory. There
 is no localStorage, sessionStorage, IndexedDB, cache or service worker use, and no
-logging. The notification mock and the `Broadcast` type are removed. The dashboard
+logging. (Step 18.1 added an app-wide service worker for installation; it caches only static
+application files and never notification or other API data. See
+[installing Medicare](pwa-installation.md).) The notification mock and the `Broadcast` type are removed. The dashboard
 `appointments` mock remains for the deferred Overview work.
 
 ## Timestamps

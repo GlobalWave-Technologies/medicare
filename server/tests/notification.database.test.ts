@@ -10,10 +10,10 @@ import { createSession } from '../src/modules/auth/session.service.js'
 import { isolatedTestEnvironment, testDatabase } from './helpers/database.js'
 import type { StaffRole, StaffStatus, NotificationType } from '../src/generated/prisma/client.js'
 
-const db = testDatabase(), env = isolatedTestEnvironment(), base = '/api/v1/notifications', appointments = '/api/v1/appointments'
+const db = testDatabase(), env = isolatedTestEnvironment(), base = '/api/v1/notifications'
 type Actor = { id: string; cookie: string; csrf: string; sessionId: string }
 const actors = new Map<StaffRole, Actor>()
-let hash: string, logs = '', slot = 0
+let hash: string, logs = ''
 let app: ReturnType<typeof createApp>
 const actor = (role: StaffRole = 'ADMIN') => actors.get(role)!
 async function newActor(role: StaffRole = 'DOCTOR_IN_CHARGE', status: StaffStatus = 'ACTIVE'): Promise<Actor> {
@@ -32,18 +32,13 @@ async function seed(who = actor(), type: NotificationType = 'DIRECT', others: Ac
     title: 'Synthetic notice', message: 'Private inbox message', createdAt,
     recipients: { create: [who, ...others].map((value) => ({ staffUserId: value.id, createdAt })) } }, include: { recipients: true } })
 }
-async function appointmentInput(who = actor('DOCTOR_IN_CHARGE')) {
-  const patient = await db.patient.create({ data: { firstName: 'PrivatePatient', lastName: randomUUID(), phone: '+233241234567', createdById: actor().id } })
-  const start = Date.now() + (++slot * 86400000)
-  return { patientId: patient.id, clinicianId: who.id, scheduledStart: new Date(start).toISOString(),
-    scheduledEnd: new Date(start + 1800000).toISOString(), type: 'CONSULTATION', reason: 'Private appointment reason', notes: 'Private appointment notes' }
+// Appointments are no longer created through the API; historical rows are seeded directly.
+async function historicalAppointment() {
+  const patient = await db.patient.create({ data: { firstName: 'PrivatePatient', lastName: randomUUID(), createdById: actor().id } })
+  const start = new Date('2026-01-05T09:00:00Z')
+  return db.appointment.create({ data: { patientId: patient.id, clinicianId: actor('DOCTOR_IN_CHARGE').id, createdById: actor().id, type: 'CONSULTATION',
+    status: 'COMPLETED', reason: 'Private appointment reason', scheduledStart: start, scheduledEnd: new Date(start.getTime() + 1800000) } })
 }
-async function booked(who = actor('DOCTOR_IN_CHARGE')) {
-  const body = await appointmentInput(who), response = await send(appointments, body)
-  expect(response.status).toBe(201)
-  return { body, id: response.body.data.appointment.id as string }
-}
-const notices = (appointmentId: string) => db.notification.findMany({ where: { appointmentId }, include: { recipients: true }, orderBy: { createdAt: 'asc' } })
 async function failure(flag: string, operation: () => Promise<void>) {
   await db.$executeRaw`INSERT INTO test_notification_failure VALUES (${flag})`
   try { await operation() } finally { await db.$executeRaw`DELETE FROM test_notification_failure WHERE flag = ${flag}` }
@@ -97,7 +92,8 @@ describe('notification ownership and authorization', () => {
   it.each(['PENDING', 'SUSPENDED', 'DISABLED', 'REVOKED', 'EXPIRED'] as const)('blocks %s sessions without removing stored history', async (state) => {
     const who = await newActor(), notice = await seed(who)
     if (state === 'REVOKED') await db.staffSession.update({ where: { id: who.sessionId }, data: { revokedAt: new Date() } })
-    else if (state === 'EXPIRED') await db.staffSession.update({ where: { id: who.sessionId }, data: { expiresAt: new Date(Date.now() - 1) } })
+    // A window wholly in the past: independent of small clock differences between Node and PostgreSQL.
+    else if (state === 'EXPIRED') await db.staffSession.update({ where: { id: who.sessionId }, data: { createdAt: new Date(Date.now() - 120000), expiresAt: new Date(Date.now() - 60000) } })
     else await db.staffUser.update({ where: { id: who.id }, data: { status: state } })
     expect((await read(base, who)).status).toBe(401)
     expect((await send(`${base}/${notice.id}/read`, {}, who)).status).toBe(401)
@@ -252,92 +248,25 @@ describe('broadcast delivery', () => {
   })
 })
 
-describe('appointment notification automation', () => {
-  it('creates exactly one private-safe assigned-doctor notification in the appointment transaction', async () => {
-    const { id, body } = await booked(), values = await notices(id)
-    expect(values).toHaveLength(1)
-    expect(values[0]).toMatchObject({ type: 'DIRECT', title: 'New appointment', message: 'An appointment has been assigned to you.', senderId: actor().id })
-    expect(values[0]!.recipients.map((r) => r.staffUserId)).toEqual([body.clinicianId])
-    const response = await read(`${base}/${values[0]!.id}`, actor('DOCTOR_IN_CHARGE'))
-    expect(response.body.data.notification.target).toEqual({ type: 'APPOINTMENT', id })
-    expect(JSON.stringify(response.body)).not.toMatch(/Private|233241234567|patientId|reason|notes/)
-    expect(await db.auditEvent.count({ where: { entityId: values[0]!.id } })).toBe(0)
-    expect(await db.auditEvent.count({ where: { entityId: id, action: 'APPOINTMENT_CREATED' } })).toBe(1)
-  })
-  it.each(['scheduledStart', 'scheduledEnd'] as const)('notifies once when %s actually changes', async (field) => {
-    const { id, body } = await booked()
-    const change = { [field]: new Date(Date.parse(body[field]) + 300000).toISOString() }
-    expect((await send(`${appointments}/${id}`, change, actor(), 'patch')).status).toBe(200)
-    expect((await notices(id)).map((v) => v.title)).toEqual(['New appointment', 'Appointment rescheduled'])
-    expect((await send(`${appointments}/${id}`, change, actor(), 'patch')).status).toBe(200)
-    expect(await notices(id)).toHaveLength(2)
-  })
-  it('notifies old and new doctors on reassignment without leaking content or granting old resource access', async () => {
-    const who = await newActor(), { id } = await booked()
-    const response = await send(`${appointments}/${id}`, { clinicianId: who.id }, actor(), 'patch')
+describe('appointment notifications after appointments were retired', () => {
+  it('keeps a historical appointment notice readable with its target, without appointment content', async () => {
+    const appointment = await historicalAppointment()
+    const value = await db.notification.create({ data: { senderId: actor().id, appointmentId: appointment.id, type: 'DIRECT', title: 'New appointment',
+      message: 'An appointment has been assigned to you.', recipients: { create: { staffUserId: actor('DOCTOR_IN_CHARGE').id } } } })
+    const response = await read(`${base}/${value.id}`, actor('DOCTOR_IN_CHARGE'))
     expect(response.status).toBe(200)
-    const values = await notices(id)
-    expect(values).toHaveLength(3)
-    expect(values.find((v) => v.title === 'Appointment reassigned')!.recipients[0]!.staffUserId).toBe(actor('DOCTOR_IN_CHARGE').id)
-    expect(values.filter((v) => v.title === 'New appointment').some((v) => v.recipients[0]!.staffUserId === who.id)).toBe(true)
-    expect((await read(`${appointments}/${id}`, actor('DOCTOR_IN_CHARGE'))).status).toBe(404)
-    expect((await read(`${appointments}/${id}`, who)).status).toBe(200)
-    expect(JSON.stringify(values.map((v) => [v.title, v.message]))).not.toMatch(/Private|patient|reason|notes/)
+    expect(response.body.data.notification.target).toEqual({ type: 'APPOINTMENT', id: appointment.id })
+    expect(JSON.stringify(response.body)).not.toMatch(/Private|patientId|reason/)
   })
-  it('coalesces simultaneous reassignment and reschedule into assignment notices', async () => {
-    const who = await newActor(), { id, body } = await booked()
-    expect((await send(`${appointments}/${id}`, { clinicianId: who.id,
-      scheduledStart: new Date(Date.parse(body.scheduledStart) + 60000).toISOString() }, actor(), 'patch')).status).toBe(200)
-    expect(await notices(id)).toHaveLength(3)
-  })
-  it('does not notify for text/type changes or confirmation', async () => {
-    const { id } = await booked()
-    expect((await send(`${appointments}/${id}`, { reason: 'Private changed reason', notes: 'Private changed notes', type: 'FOLLOW_UP' }, actor(), 'patch')).status).toBe(200)
-    expect((await send(`${appointments}/${id}/status`, { status: 'CONFIRMED' }, actor(), 'patch')).status).toBe(200)
-    expect(await notices(id)).toHaveLength(1)
-  })
-  it('sends a generic cancellation once, including under concurrent retries', async () => {
-    const { id } = await booked()
-    const responses = await Promise.all([send(`${appointments}/${id}/cancel`, { reason: 'Private cancellation reason' }), send(`${appointments}/${id}/cancel`, { reason: 'Private cancellation reason' })])
-    expect(responses.every((r) => r.status === 200)).toBe(true)
-    const values = await notices(id)
-    expect(values).toHaveLength(2)
-    expect(values[1]).toMatchObject({ title: 'Appointment cancelled', message: 'An appointment assigned to you has been cancelled.' })
-    expect(JSON.stringify(values)).not.toContain('Private cancellation reason')
-  })
-  it.each(['SUSPENDED', 'DISABLED', 'DEMOTED', 'UNASSIGNED'] as const)('preserves cancellation without a new delivery to %s assignees', async (state) => {
-    const who = await newActor(), { id } = await booked(who)
-    if (state === 'UNASSIGNED') await db.appointment.update({ where: { id }, data: { clinicianId: null } })
-    else await db.staffUser.update({ where: { id: who.id }, data: state === 'DEMOTED' ? { role: 'ADMIN' } : { status: state } })
-    expect((await send(`${appointments}/${id}/cancel`)).status).toBe(200)
-    expect(await notices(id)).toHaveLength(1)
-  })
-  it('skips inactive old doctors during reassignment but requires new-doctor delivery', async () => {
-    const old = await newActor(), next = await newActor(), { id } = await booked(old)
-    await db.staffUser.update({ where: { id: old.id }, data: { status: 'SUSPENDED' } })
-    expect((await send(`${appointments}/${id}`, { clinicianId: next.id }, actor(), 'patch')).status).toBe(200)
-    expect(await notices(id)).toHaveLength(2)
-    expect((await notices(id))[1]!.recipients[0]!.staffUserId).toBe(next.id)
-  })
-  it('does not leave notification rows when appointment conflict prevents creation', async () => {
-    const { body } = await booked(), before = await db.notification.count()
-    const response = await send(appointments, body)
-    expect(response.body.error.code).toBe('APPOINTMENT_CONFLICT')
+  it('exposes no appointment route that could create, change or notify about appointments', async () => {
+    const appointment = await historicalAppointment(), before = await db.notification.count()
+    for (const [method, path] of [['get', '/api/v1/appointments'], ['post', '/api/v1/appointments'], ['patch', `/api/v1/appointments/${appointment.id}`],
+      ['post', `/api/v1/appointments/${appointment.id}/cancel`], ['patch', `/api/v1/appointments/${appointment.id}/status`]] as const) {
+      const response = method === 'get' ? await read(path) : await send(path, { status: 'CANCELLED' }, actor(), method)
+      expect([path, response.status]).toEqual([path, 404])
+    }
     expect(await db.notification.count()).toBe(before)
-  })
-  it.each(['create', 'reschedule', 'reassign', 'cancel'] as const)('rolls back %s and audit if required notification persistence fails; a retry delivers once', async (operation) => {
-    const { id, body } = await booked(), next = await newActor(), newBody = await appointmentInput()
-    const original = await db.appointment.findUniqueOrThrow({ where: { id } })
-    const requestBody = operation === 'create' ? newBody : operation === 'reassign' ? { clinicianId: next.id }
-      : operation === 'reschedule' ? { scheduledStart: new Date(Date.parse(body.scheduledStart) + 60000).toISOString() } : { reason: 'Private cancel' }
-    const path = operation === 'create' ? appointments : `${appointments}/${id}${operation === 'cancel' ? '/cancel' : ''}`
-    const method = operation === 'reschedule' || operation === 'reassign' ? 'patch' : 'post'
-    const before = [await db.notification.count(), await db.notificationRecipient.count(), await db.auditEvent.count(), await db.appointment.count()]
-    await failure('NotificationRecipient', async () => expect((await send(path, requestBody, actor(), method)).status).toBe(500))
-    expect([await db.notification.count(), await db.notificationRecipient.count(), await db.auditEvent.count(), await db.appointment.count()]).toEqual(before)
-    expect(await db.appointment.findUniqueOrThrow({ where: { id } })).toEqual(original)
-    expect((await send(path, requestBody, actor(), method)).status).toBe(operation === 'create' ? 201 : 200)
-    expect(await db.notification.count()).toBe(before[0]! + (operation === 'reassign' ? 2 : 1))
+    expect((await db.appointment.findUniqueOrThrow({ where: { id: appointment.id } })).status).toBe('COMPLETED')
   })
 })
 
@@ -395,7 +324,8 @@ describe('notification security, integrity and authorization races', () => {
     await expect(db.notificationRecipient.create({ data: { notificationId: value.id, staffUserId: actor().id } })).rejects.toMatchObject({ code: 'P2002' })
     await expect(db.notificationRecipient.create({ data: { notificationId: value.id, staffUserId: randomUUID() } })).rejects.toMatchObject({ code: 'P2003' })
     await expect(db.notification.create({ data: { senderId: actor().id, type: 'DIRECT', title: 'Synthetic', message: 'Synthetic', appointmentId: randomUUID() } })).rejects.toMatchObject({ code: 'P2003' })
-    const { id } = await booked()
+    const { id } = await historicalAppointment()
+    await db.notification.create({ data: { senderId: actor().id, type: 'DIRECT', title: 'Synthetic', message: 'Synthetic', appointmentId: id } })
     await expect(db.appointment.delete({ where: { id } })).rejects.toMatchObject({ code: 'P2003' })
   })
   it.each([{ audience: 'EXTERNAL', recipientCount: 1 }, { audience: 'ALL', recipientCount: 0 },

@@ -27,21 +27,41 @@ read state, active-recipient broadcasts and required appointment notices. Migrat
 with a typed appointment link, an inbox index, immutable content/read history and
 one broadcast audit action. No new model or notification type is introduced.
 
+Phase 19A adds [admissions and discharge](admissions-discharge.md) and retires appointments.
+Migrations `20261111090000_admission_enums` and `20261111090100_admissions_discharge_medications`
+add `Admission`, `AdmissionRoomHistory`, `MedicationOrder` and `Encounter.admissionId`, the
+admission audit actions and entity type, the `ADMISSION_CREATE` idempotent operation, and SQL
+integrity: one current stay per patient, no overlapping stays, permanent stays, append-only room
+history, discharge blocked by drafts, no archiving while admitted, new encounters only on a current
+stay, and medication orders editable only on drafts. `Appointment` rows are kept as read-only
+history; no appointment data is migrated or deleted.
+
+Phase 19B adds the [medication catalog](medication-catalog-prescribing.md). Migrations
+`20261111120000_medication_catalog_enums` and `20261111120100_medication_catalog` add `Medication`
+(name unique ignoring case through an index on `lower(name)`, permanent name, `active` flag, never
+deleted once prescribed), `MedicationOrder.medicationId` and `strength`, triggers requiring every new
+order to name a catalog entry and keep its name as `medicine`, three catalog audit actions with the
+`MEDICATION` entity type, and the sixteen medicines of the previous system as the initial catalog.
+
 ## Entities and relationships
 
 ```text
 StaffUser (one StaffRole; one StaffStatus)
-  |-- creates Patients and Appointments
+  |-- creates Patients; admits, moves and discharges Admissions
   |-- creates/receives/performs Encounters
   |-- sends Notifications
   |-- receives Notifications through NotificationRecipient
   `-- acts in AuditEvents
 
 Patient
-  |-- many Appointments -- zero or one Encounter per appointment
-  `-- many Encounters (including walk-ins without an appointment)
+  |-- many Admissions (at most one ADMITTED; stays never overlap)
+  |     |-- many AdmissionRoomHistory entries (append-only; one open while admitted)
+  |     `-- many Encounters (new encounters only while the stay is ADMITTED)
+  |-- many Appointments (retired, read-only history) -- zero or one legacy Encounter each
+  `-- many Encounters (legacy records may have no admission)
         |-- many EncounterComplaints
         |-- many Diagnoses
+        |-- many MedicationOrders -- Medication (catalog entry; null only for pre-catalog orders)
         `-- many EncounterAmendments -- original author StaffUser
 
 Notification -- many NotificationRecipients -- StaffUser
@@ -53,34 +73,41 @@ AuditEvent -- optional actor StaffUser; typed entity UUID reference
 | `StaffUser` | Staff identity, one authorization role, account status, password hash and lifecycle timestamps |
 | `StaffSession` | Hashed opaque session credential, independent CSRF token, absolute expiry and revocation |
 | `Patient` | Demographics: names, optional date of birth and phone, creator, archival timestamp |
-| `Appointment` | Patient, optional assigned clinician, creator, start/end, type, status, reason/notes and cancellation attribution |
-| `Encounter` | One visit: patient, optional appointment/clinician, creator and receiver, room, history summary, notes, plan and follow-up |
+| `Admission` | One hospital stay: `AD-` number, patient, current room, status, admission time and staff, discharge time, staff and note |
+| `AdmissionRoomHistory` | Each room assignment on a stay: room, optional transfer note, assigned time and staff, end time |
+| `Appointment` | Retired, read-only history: patient, optional assigned clinician, creator, start/end, type, status, reason/notes and cancellation attribution |
+| `Encounter` | One clinical record: patient, admission (or a legacy appointment or none), clinician, creator and receiver, room, history summary, notes, plan and follow-up |
 | `EncounterComplaint` | Multiple structured complaint descriptions for a visit; duplicate descriptions within that visit are rejected |
 | `Diagnosis` | Findings within an encounter, optional opaque code and notes; no ICD registry or coding-system claim |
+| `MedicationOrder` | A structured order within an encounter: catalog medicine (`medicationId`) and its name as prescribed (`medicine`), strength, dose, route, frequency, duration and instructions (`notes`); editable only while the encounter is a draft |
+| `Medication` | Catalog entry: name (unique ignoring case, permanent), `active`; deactivated rather than deleted |
 | `EncounterAmendment` | Append-only correction: reviewed encounter, original author, reason, content and creation time; no updatedAt |
 | `Notification` | Shared immutable direct/broadcast title and message, sender, optional target role and restrictive appointment link |
 | `NotificationRecipient` | Snapshot of recipients and each recipient's read timestamp |
 | `AuditEvent` | Append-only action record, optional actor, typed entity UUID, correlation metadata and time |
 
 There is no role lookup table: the three supported roles form the stable
-`StaffRole` enum. There is no prescription model because the current UI has no
-medication or prescription fields. Pharmacy inventory is out of scope.
+`StaffRole` enum (`DOCTOR_IN_CHARGE` is shown as "Medical Officer"). Medication orders are
+recorded on clinical records; dispensing and pharmacy inventory are out of scope.
 
 The appointment/encounter composite foreign key includes both appointment ID
 and patient ID. An encounter cannot reference another patient's appointment.
 The unique pair also permits at most one encounter per appointment. Multiple
 walk-in encounters are allowed because a null appointment is not a unique value.
+The same composite pattern links an encounter to its admission `(admissionId, patientId)`, so a
+record can never sit on another patient's stay. The API no longer links new encounters to appointments.
 
 ## Enums and lifecycle
 
 - `StaffRole`: `ADMIN`, `RECORDS_OFFICER`, `DOCTOR_IN_CHARGE`.
 - `StaffStatus`: `PENDING`, `ACTIVE`, `SUSPENDED`, `DISABLED`.
+- `AdmissionStatus`: `ADMITTED`, `DISCHARGED` (one way).
 - `AppointmentStatus`: `SCHEDULED`, `CONFIRMED`, `CHECKED_IN`, `COMPLETED`,
-  `CANCELLED`, `NO_SHOW`.
+  `CANCELLED`, `NO_SHOW` (retained for history).
 - `AppointmentType`: `CONSULTATION`, `FOLLOW_UP`, `ROUTINE_CHECKUP`, `EMERGENCY_REVIEW`.
 - `EncounterStatus`: `DRAFT`, `REVIEWED`, `VOIDED`.
 - `NotificationType`: `DIRECT`, `BROADCAST`.
-- `AuditEntityType`: `STAFF_USER`, `PATIENT`, `APPOINTMENT`, `ENCOUNTER`, `NOTIFICATION`, `AUTH_ATTEMPT`.
+- `AuditEntityType`: `STAFF_USER`, `PATIENT`, `APPOINTMENT`, `ENCOUNTER`, `NOTIFICATION`, `AUTH_ATTEMPT`, `ADMISSION`.
 - `AuditAction`: `ADMIN_BOOTSTRAPPED`, `STAFF_CREATED`, `STAFF_ROLE_CHANGED`,
   `STAFF_STATUS_CHANGED`, `PATIENT_CREATED`, `PATIENT_VIEWED`, `PATIENT_UPDATED`,
   `MEDICAL_RECORD_CREATED`, `MEDICAL_RECORD_VIEWED`, `MEDICAL_RECORD_UPDATED`,
@@ -89,7 +116,9 @@ walk-in encounters are allowed because a null appointment is not a unique value.
   `PATIENT_ARCHIVED`, `PATIENT_REACTIVATED`, `APPOINTMENT_VIEWED`,
   `APPOINTMENT_STATUS_CHANGED`, `APPOINTMENT_CANCELLED`,
   `MEDICAL_RECORD_FINALIZED`, `MEDICAL_RECORD_AMENDED`, `MEDICAL_HISTORY_VIEWED`,
-  `NOTIFICATION_BROADCAST_CREATED`.
+  `NOTIFICATION_BROADCAST_CREATED`; later steps add credential and reporting actions, and
+  Phase 19A adds `PATIENT_ADMITTED`, `PATIENT_READMITTED`, `ADMISSION_VIEWED`,
+  `ADMISSION_ROOM_CHANGED` and `PATIENT_DISCHARGED`. Appointment actions remain for history.
   Clinical writes/detail access and patient-history views now use transactional audits.
 
 Pending staff may have no password yet. Active staff must have an Argon2id hash
@@ -99,18 +128,20 @@ and retains identity for history. The authentication guide defines allowed
 transitions and last-admin safeguards. Recovery remains deferred.
 Roles never come from a login request.
 
-Appointments normally progress through scheduling, confirmation, check-in and
-completion, with cancellation/no-show alternatives. End time must exceed start.
-Cancellation requires a timestamp and staff actor. Step 5 now enforces the
-documented lifecycle and rescheduling rules in services, with SQL exclusion
-constraints preventing overlapping blocking appointments for either patient or
-clinician. See [appointment scheduling](appointment-api.md) for the exact policy.
+An admission starts `ADMITTED` with one open room entry and ends `DISCHARGED` with discharge
+time, staff and an optional note; the open room entry closes at the discharge time. Stays are
+never deleted or reopened, and their identity and admission time never change. A re-admission is a
+new stay. See [admissions and discharge](admissions-discharge.md).
+
+Appointments (retired) progressed through scheduling, confirmation, check-in and
+completion, with cancellation/no-show alternatives; their SQL checks and exclusion constraints
+remain in place for the stored history. See the retired [appointment scheduling](appointment-api.md) page.
 
 Legacy storage permits unassigned drafts; new API encounters always derive
 clinician and creator from the authenticated doctor. Only that original author
 can edit a DRAFT or finalize it to REVIEWED, with server reviewedAt and nonempty
-clinical content. Appointment completion remains separate. REVIEWED and VOIDED
-parents and their complaints/diagnoses are immutable under SQL triggers. VOIDED
+clinical content. REVIEWED and VOIDED
+parents and their complaints/diagnoses/medication orders are immutable under SQL triggers. VOIDED
 requires existing reason/time metadata but has no transition API in Step 6.
 Corrections append EncounterAmendment rows to REVIEWED records; neither original
 content nor amendments can be overwritten. Active doctors can read all clinical
@@ -127,6 +158,9 @@ references are generated by PostgreSQL defaults, not by counting rows:
 - Patient: `PT-<uppercase UUID v4>`.
 - Appointment: `AP-<uppercase UUID v4>`.
 - Encounter: `MR-<uppercase UUID v4>`.
+- Admission: `AD-` plus at least six digits (`AD-000001`), from `next_admission_number()` over the
+  sequence `admission_number_seq`. Unlike the UUID references it is sequential, so it reveals the
+  approximate number of stays; gaps appear when a transaction rolls back.
 - Staff: an institution-assigned `STF-` plus 6-32 uppercase alphanumeric
   characters. The default is `STF-` plus 32 UUID hex characters. Bootstrap
   deliberately requires an operator-supplied staff number.
@@ -145,7 +179,7 @@ have both format and unique constraints. Names cannot be blank.
 ## Historical continuity and time
 
 All foreign keys use `ON DELETE RESTRICT` and `ON UPDATE RESTRICT`. Deleting a
-referenced staff member, patient, appointment or encounter fails; nothing
+referenced staff member, patient, admission, appointment or encounter fails; nothing
 cascade-deletes clinical history. Use staff status, patient `archivedAt`, or
 historical retention instead. No clinical delete/void API is exposed. Reviewed
 and voided encounters and amendments are protected even when unreferenced;
@@ -188,7 +222,7 @@ Prisma's schema cannot represent all checks/triggers: preserve the SQL migration
 Message text is stored once. Recipient rows provide a unique notification/user
 pair with independent first-read state. BROADCAST targetRole selects a role;
 null now means ALL. DIRECT must have no role audience. API delivery selects only
-ACTIVE staff, with appointment notices additionally requiring DOCTOR_IN_CHARGE.
+ACTIVE staff. Appointment notices (no longer created) required DOCTOR_IN_CHARGE.
 Recipients are a send-time snapshot; role/status changes never rewrite history.
 All active roles have own-inbox access; ADMIN broadcast permission grants no
 cross-inbox access. Content cannot be edited/deleted and readAt cannot be reset.
@@ -199,7 +233,7 @@ allowed for DIRECT messages. The API maps it to a minimal APPOINTMENT target;
 the target's own authorization remains mandatory. The existing recipient/readAt/
 createdAt index supports unread counts; recipient/createdAt/id supports inbox
 ordering. See the API guide for active-recipient exclusions, plain-text rules,
-transactional appointment automation and synchronous fan-out limits.
+the retired appointment automation and synchronous fan-out limits.
 
 Audit actors have a real staff FK, nullable for system/unknown actors. The typed
 entity UUID is deliberately polymorphic and has no FK to every domain table;
@@ -208,7 +242,7 @@ for the same transaction as the action. Bootstrap already uses this transaction.
 
 Audit metadata is the only JSON column. It allows `source` (`CLI`, `API`,
 `SYSTEM`) and optional `changedFields` containing only `role`, `status`,
-`demographics`, `schedule`, `clinicalRecord`, `readAt`. Step 7 additionally permits
+`demographics`, `schedule`, `clinicalRecord`, `readAt` and (Phase 19A) `medications`. Step 7 additionally permits
 paired `audience` (ALL or ROLE) and `recipientCount` (integer 1–10000). Broadcasts
 record one NOTIFICATION_BROADCAST_CREATED event; automated notices rely on their
 appointment audit. Inbox reads/read-state changes create no per-read audits.
@@ -276,7 +310,16 @@ audit values), `20261003150000_appointment_scheduling_integrity` (btree_gist,
 overlap exclusions and appointment audit actions), and
 `20261004140000_clinical_encounter_integrity` (amendments, immutable clinical
 history and clinical audit actions), and `20261009120000_notification_workflow`
-(notification delivery/audience/resource integrity and broadcast audit metadata).
+(notification delivery/audience/resource integrity and broadcast audit metadata), then
+`20261010120000_reporting_query_support`, `20261104120000_mutation_idempotency`,
+`20261106090000_credential_lifecycle_enums`, `20261106090100_staff_create_idempotency`,
+`20261107090000_staff_temporary_password`, `20261111090000_admission_enums` and
+`20261111090100_admissions_discharge_medications`, `20261111120000_medication_catalog_enums` and
+`20261111120100_medication_catalog`, `20261112090000_staff_activity_enums` and
+`20261112090100_staff_session_activity` (18 in total). Phase 19D adds `StaffSession.lastActivityAt`
+and `StaffUser.lastActivityAt` (when a session and a person last used the system, written at most
+once a minute; see [Staff Activity](staff-activity-monitoring.md)) and the `STAFF_SESSION_REVOKED`
+audit action.
 Apply with `npm run prisma:migrate:deploy`. Develop new migrations
 with `npm run prisma:migrate -- --name descriptive_name`, review SQL, then run
 generation, validation and tests. Do not use `db push` for schema management.
@@ -316,7 +359,7 @@ and startup/shutdown tests remain in the suite. No production fixtures are used.
 
 Sex/gender, address, emergency contact, patient email and blood group are not
 currently collected; their exact semantics and collection requirements are
-deferred rather than guessed. Prescriptions and pharmacy tables are also deferred.
+deferred rather than guessed. Pharmacy and dispensing tables are also deferred.
 Frontend source, forms, mock data, login behavior and API wiring are unchanged.
 
 Patient identity/contact data, clinical notes, diagnoses, notification text,
@@ -334,8 +377,9 @@ adds `CLINICAL_REPORT_VIEWED` to AuditAction. A personal clinical report access
 event references the requesting STAFF_USER, with only `source: API` metadata.
 Dashboard and operational aggregate reads are not individually audited.
 
-Patient registrations use createdAt; appointment activity uses scheduledStart;
-clinical author activity uses occurredAt, reviewedAt and amendment createdAt.
+Patient registrations use createdAt; admissions use admittedAt and discharges dischargedAt
+(Phase 19A replaced appointment activity); clinical author activity uses occurredAt, reviewedAt
+and amendment createdAt. Current admissions are a live count of `ADMITTED` stays.
 Current snapshots are explicitly separate from period metrics. Reviewed timestamps
 retain their existing finalization meaning. See [dashboard/report contracts](dashboard-reports-api.md)
 for UTC range boundaries, doctor scoping, query/index review and privacy limits.

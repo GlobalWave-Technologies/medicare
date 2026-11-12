@@ -4,8 +4,9 @@ import type {
 } from '../types/index'
 import type { BackendRole } from '../api/auth'
 
+// DOCTOR_IN_CHARGE is the stored role code; staff see it as Medical Officer.
 export const toUiRole = (role: BackendRole): Role => ({
-  ADMIN: 'Admin', RECORDS_OFFICER: 'Records Officer', DOCTOR_IN_CHARGE: 'Doctor in Charge',
+  ADMIN: 'Admin', RECORDS_OFFICER: 'Records Officer', DOCTOR_IN_CHARGE: 'Medical Officer',
 } as const)[role]
 
 export function allowedView(role: BackendRole, requested: View): View {
@@ -14,11 +15,12 @@ export function allowedView(role: BackendRole, requested: View): View {
 }
 
 import {
+  Activity,
   Bell,
-  CalendarDays,
   ClipboardList,
   FileText,
   LayoutDashboard,
+  Pill,
   UsersRound,
   ShieldCheck,
 } from 'lucide-react'
@@ -33,87 +35,34 @@ export const navItemsByRole: Record<
   NavItem[]
 > = {
   Admin: [
-    {
-      label: 'Overview',
-      icon: LayoutDashboard,
-    },
-    {
-      label: 'Patients',
-      icon: UsersRound,
-    },
-    {
-      label: 'Appointments',
-      icon: CalendarDays,
-    },
-    {
-      label: 'Staff',
-      icon: ShieldCheck,
-    },
-    {
-      label: 'Reports',
-      icon: ClipboardList,
-    },
-    {
-      label: 'Notifications',
-      icon: Bell,
-    },
+    { label: 'Overview', icon: LayoutDashboard },
+    { label: 'Patients', icon: UsersRound },
+    { label: 'Staff', icon: ShieldCheck },
+    { label: 'Activity', icon: Activity },
+    { label: 'Medicines', icon: Pill },
+    { label: 'Notifications', icon: Bell },
+    { label: 'Reports', icon: ClipboardList },
   ],
 
   'Records Officer': [
-    {
-      label: 'Overview',
-      icon: LayoutDashboard,
-    },
-    {
-      label: 'Patients',
-      icon: UsersRound,
-    },
-    {
-      label: 'Appointments',
-      icon: CalendarDays,
-    },
-    {
-      label: 'Reports',
-      icon: ClipboardList,
-    },
-    {
-      label: 'Notifications',
-      icon: Bell,
-    },
+    { label: 'Overview', icon: LayoutDashboard },
+    { label: 'Patients', icon: UsersRound },
+    { label: 'Notifications', icon: Bell },
+    { label: 'Reports', icon: ClipboardList },
   ],
 
-  'Doctor in Charge': [
-    {
-      label: 'Overview',
-      icon: LayoutDashboard,
-    },
-    {
-      label: 'Patients',
-      icon: UsersRound,
-    },
-    {
-      label: 'Appointments',
-      icon: CalendarDays,
-    },
-    {
-      label: 'Medical records',
-      icon: FileText,
-    },
-    {
-      label: 'Reports',
-      icon: ClipboardList,
-    },
-    {
-      label: 'Notifications',
-      icon: Bell,
-    },
+  'Medical Officer': [
+    { label: 'Overview', icon: LayoutDashboard },
+    { label: 'Patients', icon: UsersRound },
+    { label: 'Medical records', icon: FileText },
+    { label: 'Notifications', icon: Bell },
   ],
 }
 
 // Display names for each workspace. View keys stay stable; people see these names in navigation and headings.
 export const viewLabels: Record<View, string> = {
-  Overview: 'Overview', Patients: 'Patients', Appointments: 'Appointments', 'Medical records': 'Medical Records',
-  Staff: 'Staff & Access', Reports: 'Reports', Notifications: 'Notifications',
+  Overview: 'Overview', Patients: 'Patients', 'Medical records': 'Medical Records',
+  Staff: 'Staff & Access', Activity: 'Staff Activity', Medicines: 'Medication Catalog', Reports: 'Reports', Notifications: 'Notifications',
 }
 
 export const roleLabels: Record<
@@ -125,12 +74,12 @@ export const roleLabels: Record<
   'Records Officer':
     'Records Officer',
 
-  'Doctor in Charge':
-    'Doctor in Charge',
+  'Medical Officer':
+    'Medical Officer',
 }
 
 export const roles: Role[] = [
   'Admin',
   'Records Officer',
-  'Doctor in Charge',
+  'Medical Officer',
 ]

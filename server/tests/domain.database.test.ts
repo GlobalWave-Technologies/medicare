@@ -52,6 +52,13 @@ describe('migrated relational domain', () => {
       '20261104120000_mutation_idempotency',
       '20261106090000_credential_lifecycle_enums',
       '20261106090100_staff_create_idempotency',
+      '20261107090000_staff_temporary_password',
+      '20261111090000_admission_enums',
+      '20261111090100_admissions_discharge_medications',
+      '20261111120000_medication_catalog_enums',
+      '20261111120100_medication_catalog',
+      '20261112090000_staff_activity_enums',
+      '20261112090100_staff_session_activity',
     ])
     expect(migrations.every((migration) => migration.finished_at instanceof Date)).toBe(true)
   })
@@ -154,8 +161,11 @@ describe('migrated relational domain', () => {
     await expect(prisma.patient.update({ where: { id: patientId }, data: { createdAt: new Date('1990-01-01') } })).rejects.toThrow()
     const columns = await prisma.$queryRaw<Array<{ data_type: string }>>`
       SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'createdAt'`
-    expect(columns).toHaveLength(12)
+    expect(columns).toHaveLength(16)
     expect(columns.every((column) => column.data_type === 'timestamp with time zone')).toBe(true)
+    const activity = await prisma.$queryRaw<Array<{ table_name: string; data_type: string; is_nullable: string }>>`
+      SELECT table_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'lastActivityAt' ORDER BY table_name`
+    expect(activity).toEqual([{ table_name: 'StaffSession', data_type: 'timestamp with time zone', is_nullable: 'NO' }, { table_name: 'StaffUser', data_type: 'timestamp with time zone', is_nullable: 'YES' }])
   })
 
   it('stores broadcast content once and per-recipient read state without duplicates', async () => {

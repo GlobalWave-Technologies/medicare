@@ -45,6 +45,13 @@ enum EncounterStatus {
   VOIDED
 }
 
+// A hospital stay. A patient has at most one ADMITTED admission at a time (SQL partial unique
+// index plus a no-overlap exclusion constraint); a discharged admission is permanent history.
+enum AdmissionStatus {
+  ADMITTED
+  DISCHARGED
+}
+
 enum NotificationType {
   DIRECT
   BROADCAST
@@ -80,6 +87,15 @@ enum AuditAction {
   SESSION_REVOKED
   PASSWORD_CHANGED
   PASSWORD_RESET
+  PATIENT_ADMITTED
+  PATIENT_READMITTED
+  ADMISSION_VIEWED
+  ADMISSION_ROOM_CHANGED
+  PATIENT_DISCHARGED
+  MEDICATION_CREATED
+  MEDICATION_DEACTIVATED
+  MEDICATION_REACTIVATED
+  STAFF_SESSION_REVOKED
 }
 
 enum AuditEntityType {
@@ -89,21 +105,29 @@ enum AuditEntityType {
   APPOINTMENT
   ENCOUNTER
   NOTIFICATION
+  ADMISSION
+  MEDICATION
 }
 
 model StaffUser {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  staffNumber       String      @unique @default(dbgenerated("('STF-'::text || upper(replace((gen_random_uuid())::text, '-'::text, ''::text)))")) @db.VarChar(36)
-  firstName         String      @db.VarChar(100)
-  lastName          String      @db.VarChar(100)
-  email             String      @unique @db.VarChar(254)
-  role              StaffRole
-  status            StaffStatus @default(PENDING)
-  passwordHash      String?     @db.VarChar(512)
-  passwordChangedAt DateTime?   @db.Timestamptz(3)
-  lastLoginAt       DateTime?   @db.Timestamptz(3)
-  createdAt         DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime    @default(now()) @updatedAt @db.Timestamptz(3)
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffNumber        String      @unique @default(dbgenerated("('STF-'::text || upper(replace((gen_random_uuid())::text, '-'::text, ''::text)))")) @db.VarChar(36)
+  firstName          String      @db.VarChar(100)
+  lastName           String      @db.VarChar(100)
+  email              String      @unique @db.VarChar(254)
+  role               StaffRole
+  status             StaffStatus @default(PENDING)
+  passwordHash       String?     @db.VarChar(512)
+  passwordChangedAt  DateTime?   @db.Timestamptz(3)
+  /// True while the current password was issued by an administrator (creation or reset);
+  /// cleared only when the staff member sets their own password.
+  mustChangePassword Boolean     @default(false)
+  lastLoginAt        DateTime?   @db.Timestamptz(3)
+  /// The last time this person used the system (a signed-in request they made, recorded at most
+  /// once a minute per session). Background refreshes do not count.
+  lastActivityAt     DateTime?   @db.Timestamptz(3)
+  createdAt          DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime    @default(now()) @updatedAt @db.Timestamptz(3)
 
   patients              Patient[]               @relation("PatientCreator")
   appointmentsCreated   Appointment[]           @relation("AppointmentCreator")
@@ -119,6 +143,9 @@ model StaffUser {
   sessions              StaffSession[]
   idempotencyRecords    IdempotencyRecord[]     @relation("IdempotencyPrincipal")
   createdByIdempotency  IdempotencyRecord?      @relation("IdempotencyStaffUser")
+  admissionsAdmitted    Admission[]             @relation("AdmissionAdmitter")
+  admissionsDischarged  Admission[]             @relation("AdmissionDischarger")
+  roomAssignments       AdmissionRoomHistory[]
 
   @@index([role, status])
 }
@@ -132,6 +159,8 @@ model StaffSession {
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   expiresAt   DateTime  @db.Timestamptz(3)
   revokedAt   DateTime? @db.Timestamptz(3)
+  /// When this session was last used, kept to the minute (see lastActivityAt on StaffUser).
+  lastActivityAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([staffUserId, revokedAt])
   @@index([expiresAt])
@@ -151,6 +180,7 @@ model Patient {
   createdAt     DateTime           @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime           @default(now()) @updatedAt @db.Timestamptz(3)
   appointments  Appointment[]
+  admissions    Admission[]
   encounters    Encounter[]
   idempotency   IdempotencyRecord?
 
@@ -160,6 +190,8 @@ model Patient {
   @@index([createdById])
 }
 
+// Appointments are no longer an application workflow (Phase 19A). The table and its history are
+// kept read-only; no API route creates or changes appointments.
 model Appointment {
   // SQL migration enforces clinician/patient [start,end) exclusion constraints
   // for SCHEDULED, CONFIRMED and CHECKED_IN. Preserve them in future migrations.
@@ -203,6 +235,10 @@ model Encounter {
   patient        Patient              @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   appointmentId  String?              @db.Uuid
   appointment    Appointment?         @relation(fields: [appointmentId, patientId], references: [id, patientId], onDelete: Restrict, onUpdate: Restrict)
+  /// The admission this record belongs to. New records require a current admission (API and
+  /// trigger); records made before admissions existed keep a null admission.
+  admissionId    String?              @db.Uuid
+  admission      Admission?           @relation(fields: [admissionId, patientId], references: [id, patientId], onDelete: Restrict, onUpdate: Restrict)
   clinicianId    String?              @db.Uuid
   clinician      StaffUser?           @relation("EncounterClinician", fields: [clinicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   receivedById   String?              @db.Uuid
@@ -223,11 +259,13 @@ model Encounter {
   updatedAt      DateTime             @default(now()) @updatedAt @db.Timestamptz(3)
   complaints     EncounterComplaint[]
   diagnoses      Diagnosis[]
+  medications    MedicationOrder[]
   amendments     EncounterAmendment[]
   idempotency    IdempotencyRecord?
 
   @@unique([appointmentId, patientId])
   @@index([patientId, occurredAt])
+  @@index([admissionId, occurredAt])
   @@index([clinicianId, occurredAt])
   @@index([createdById])
   @@index([receivedById])
@@ -269,6 +307,91 @@ model Diagnosis {
   updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
 
   @@index([encounterId])
+}
+
+// Prescribed while the clinical record is a draft and replaced as a set, like diagnoses; frozen by
+// trigger once the record is finalized.
+// A prescribed medicine on a clinical record. New orders name a catalog Medication; "medicine" keeps
+// the catalog name as it was when prescribed (a trigger checks it), so history stays readable.
+// Orders written before the catalog existed have no medicationId. Draft-only changes (trigger).
+model MedicationOrder {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  encounterId  String      @db.Uuid
+  encounter    Encounter   @relation(fields: [encounterId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  medicationId String?     @db.Uuid
+  medication   Medication? @relation(fields: [medicationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  medicine     String      @db.VarChar(200)
+  strength     String?     @db.VarChar(100)
+  dose         String?     @db.VarChar(100)
+  route        String?     @db.VarChar(50)
+  frequency    String?     @db.VarChar(100)
+  duration     String?     @db.VarChar(100)
+  notes        String?     @db.VarChar(2000)
+  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@index([encounterId])
+  @@index([medicationId])
+}
+
+// The controlled list Medical Officers prescribe from. Names are unique ignoring case (SQL
+// expression index) and never change; entries are deactivated rather than deleted.
+model Medication {
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String            @db.VarChar(200)
+  active    Boolean           @default(true)
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime          @default(now()) @updatedAt @db.Timestamptz(3)
+  orders    MedicationOrder[]
+
+  @@index([active, name])
+}
+
+// The current room is Admission.roomNumber; every assignment, including the first, is kept in
+// AdmissionRoomHistory. Discharged admissions are permanent (trigger).
+model Admission {
+  id              String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admissionNumber String                 @unique @default(dbgenerated("next_admission_number()")) @db.VarChar(24)
+  patientId       String                 @db.Uuid
+  patient         Patient                @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  roomNumber      String                 @db.VarChar(100)
+  status          AdmissionStatus        @default(ADMITTED)
+  admittedAt      DateTime               @db.Timestamptz(3)
+  admittedById    String                 @db.Uuid
+  admittedBy      StaffUser              @relation("AdmissionAdmitter", fields: [admittedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  dischargedAt    DateTime?              @db.Timestamptz(3)
+  dischargedById  String?                @db.Uuid
+  dischargedBy    StaffUser?             @relation("AdmissionDischarger", fields: [dischargedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  dischargeNotes  String?
+  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime               @default(now()) @updatedAt @db.Timestamptz(3)
+  rooms           AdmissionRoomHistory[]
+  encounters      Encounter[]
+  idempotency     IdempotencyRecord?
+
+  // Required by the composite FK that keeps an encounter on its own patient's admission.
+  @@unique([id, patientId])
+  @@index([patientId, admittedAt])
+  @@index([status, admittedAt])
+  @@index([dischargedAt])
+  @@index([admittedById])
+  @@index([dischargedById])
+}
+
+// Append-only except closing the open assignment (endedAt), enforced by trigger.
+model AdmissionRoomHistory {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admissionId  String    @db.Uuid
+  admission    Admission @relation(fields: [admissionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  roomNumber   String    @db.VarChar(100)
+  note         String?   @db.VarChar(500)
+  assignedAt   DateTime  @db.Timestamptz(3)
+  assignedById String    @db.Uuid
+  assignedBy   StaffUser @relation(fields: [assignedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  endedAt      DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([admissionId, assignedAt])
+  @@index([assignedById])
 }
 
 model Notification {
@@ -328,6 +451,7 @@ enum IdempotentOperation {
   ENCOUNTER_CREATE
   NOTIFICATION_BROADCAST
   STAFF_CREATE
+  ADMISSION_CREATE
 }
 
 // Retry protection for selected create requests. Holds hashes and the created
@@ -347,6 +471,8 @@ model IdempotencyRecord {
   notification   Notification?       @relation(fields: [notificationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   staffUserId    String?             @unique @db.Uuid
   staffUser      StaffUser?          @relation("IdempotencyStaffUser", fields: [staffUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  admissionId    String?             @unique @db.Uuid
+  admission      Admission?          @relation(fields: [admissionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt      DateTime            @default(now()) @db.Timestamptz(3)
   expiresAt      DateTime            @db.Timestamptz(3)
 

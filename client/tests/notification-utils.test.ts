@@ -41,5 +41,5 @@ it.each([
   [new ApiError(403, 'raw', 'FORBIDDEN'), 'You do not have permission to perform this action.'],
   [new ApiError(403, 'raw', 'CSRF_INVALID'), 'Your security token needs refreshing. Please try again.'],
   [new ApiError(401, 'raw', 'UNAUTHENTICATED'), 'Your session has expired. Sign in again.'],
-  [new ApiError(500, 'stack trace detail', 'INTERNAL_ERROR'), 'Unable to contact the server. Please try again.'],
+  [new ApiError(500, 'stack trace detail', 'INTERNAL_ERROR'), 'Medicare could not complete this just now. Please try again in a moment.'],
 ])('maps %s to safe staff wording', (error, message) => expect(notificationError(error)).toBe(message))

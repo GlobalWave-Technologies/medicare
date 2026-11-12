@@ -19,6 +19,7 @@ let revision = 0
 let csrf: string | undefined
 let pendingCsrf: Promise<string> | undefined
 const invalidationListeners = new Set<() => void>()
+const passwordChangeListeners = new Set<() => void>()
 
 export function resetApiSession() {
   revision += 1
@@ -29,6 +30,12 @@ export function onSessionInvalidated(listener: () => void) {
   invalidationListeners.add(listener)
   return () => { invalidationListeners.delete(listener) }
 }
+// The server refuses application routes while the account holds a temporary password.
+export function onPasswordChangeRequired(listener: () => void) {
+  passwordChangeListeners.add(listener)
+  return () => { passwordChangeListeners.delete(listener) }
+}
+export const apiUrl = (path: string) => `${API_BASE}${path}`
 const sessionChanged = () => new ApiError(409, 'The session changed. Please try again.', 'SESSION_CHANGED')
 
 export async function request<T>(path: string, init: RequestInit = {}, authenticated = true): Promise<T> {
@@ -48,6 +55,7 @@ export async function request<T>(path: string, init: RequestInit = {}, authentic
       invalidationListeners.forEach((listener) => listener())
     }
     const error = isRecord(payload) && isRecord(payload.error) ? payload.error : {}
+    if (authenticated && response.status === 403 && error.code === 'PASSWORD_CHANGE_REQUIRED') passwordChangeListeners.forEach((listener) => listener())
     const retryHeader = response.headers.get('Retry-After')
     const retryAfter = retryHeader && /^\d+$/.test(retryHeader) ? Number(retryHeader) : undefined
     throw new ApiError(response.status, textField(error.message) ?? 'Request failed',
@@ -96,16 +104,25 @@ export async function mutation<T>(path: string, init: RequestInit, options: { id
   }
 }
 
+// Expected answers (wrong password, validation, permission, rate limit) need no support reference;
+// one is shown only when the server failed unexpectedly, so staff can quote it to support.
+export function unexpectedFailureReference(error: unknown) {
+  return error instanceof ApiError && error.status >= 500 && error.requestId ? error.requestId : undefined
+}
+
 export function authErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.code === 'INVALID_CREDENTIALS') return 'Invalid email or password.'
+    if (error.code === 'INVALID_CREDENTIALS') return 'Invalid email or password. Check both and try again; if your account was suspended, contact your system administrator.'
     if (error.code === 'VALIDATION_ERROR') return 'Please check the submitted details and try again.'
     if (error.status === 429) return error.retryAfter
       ? `Too many sign-in attempts. Try again in about ${Math.ceil(error.retryAfter / 60)} minute(s).`
       : 'Too many sign-in attempts. Please try again later.'
     if (error.code === 'CSRF_INVALID') return 'Your security token needs refreshing. Please try again.'
+    if (error.code === 'PASSWORD_CHANGE_REQUIRED') return 'Change your temporary password to continue.'
     if (error.status === 403) return 'You do not have permission to perform this action.'
     if (error.code === 'SESSION_CHANGED') return 'Your session changed. Please try again.'
+    if (error.status === 401) return 'Your session has ended. Please sign in again.'
+    if (error.status >= 500) return 'Medicare could not complete this just now. Please try again in a moment.'
   }
   return 'Unable to contact the server. Please try again.'
 }

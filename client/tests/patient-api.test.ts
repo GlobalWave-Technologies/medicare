@@ -48,7 +48,7 @@ it.each(['create', 'update', 'archive', 'reactivate'] as const)('%s uses shared 
 it('preserves auth on patient 403 and invalidates it on patient 401', async () => {
   const store = createAuthStore()
   try {
-    fetcher.mockResolvedValueOnce(ok({ user: { id: 'staff', staffNumber: 'STF-QA', firstName: 'QA', lastName: 'Staff', email: 'qa@example.test', role: 'DOCTOR_IN_CHARGE', status: 'ACTIVE' } }))
+    fetcher.mockResolvedValueOnce(ok({ user: { id: 'staff', staffNumber: 'STF-QA', firstName: 'QA', lastName: 'Staff', email: 'qa@example.test', role: 'DOCTOR_IN_CHARGE', status: 'ACTIVE', mustChangePassword: false } }))
     await store.refreshUser()
     fetcher.mockResolvedValueOnce(new Response('{}', { status: 403 }))
     await expect(patientsApi.get('id')).rejects.toMatchObject({ status: 403 })

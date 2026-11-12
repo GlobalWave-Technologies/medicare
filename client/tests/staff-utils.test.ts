@@ -13,14 +13,15 @@ it('limits staff administration to administrators', () => {
   expect(staffRoles.filter(canAdministerStaff)).toEqual(['ADMIN'])
 })
 it('maps every backend role and status to a readable label without raw enums', () => {
-  expect(staffRoles.map(roleLabel)).toEqual(['Admin', 'Records Officer', 'Doctor in Charge'])
+  expect(staffRoles.map(roleLabel)).toEqual(['Administrator', 'Records Officer', 'Medical Officer'])
   expect(staffStatuses.map((status) => statusLabels[status])).toEqual(['Pending', 'Active', 'Suspended', 'Disabled'])
   for (const text of [...Object.values(roleAccess), ...Object.values(statusMeaning)]) expect(text).not.toMatch(/[A-Z]{2,}_[A-Z]/)
 })
 it('describes role access from the server permission matrix', () => {
-  expect(roleAccess.ADMIN).toMatch(/Staff accounts.*No access to clinical records/)
-  expect(roleAccess.RECORDS_OFFICER).toMatch(/No access to clinical records or staff administration/)
-  expect(roleAccess.DOCTOR_IN_CHARGE).toMatch(/clinical records\. No staff administration/)
+  expect(roleAccess.ADMIN).toMatch(/Staff accounts.*admission.*No access to clinical records/)
+  expect(roleAccess.RECORDS_OFFICER).toMatch(/admission.*No access to clinical records or staff administration/)
+  expect(roleAccess.DOCTOR_IN_CHARGE).toMatch(/admission.*medical records, medications and discharge\. No staff administration/)
+  for (const text of Object.values(roleAccess)) expect(text).not.toMatch(/appointment/i)
 })
 it('offers exactly the status transitions the server allows', () => {
   const offered = Object.fromEntries(staffStatuses.map((status) => [status, statusActions[status].map((action) => action.to)]))
@@ -89,7 +90,7 @@ it.each([
   ['VALIDATION_ERROR', 400, 'Check the details and try again. Some information wasn’t accepted.'],
   ['CSRF_INVALID', 403, 'Your security token needs refreshing. Please try again.'],
   ['AUTHENTICATION_REQUIRED', 401, 'Your session has expired. Sign in again.'],
-  ['INTERNAL_ERROR', 500, 'Unable to contact the server. Please try again.'],
+  ['INTERNAL_ERROR', 500, 'Medicare could not complete this just now. Please try again in a moment.'],
 ] as const)('maps %s to a safe message', (code, status, message) => {
   const text = staffError(new ApiError(status, 'Raw server text: duplicate key value violates unique constraint', code, 'req-1'))
   expect(text).toBe(message); expect(text).not.toMatch(/Raw server|constraint|req-1/)

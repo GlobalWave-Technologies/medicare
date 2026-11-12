@@ -1,5 +1,39 @@
 # Step 15 — Dashboard and reports frontend
 
+## Phase 19A update
+
+Appointments were retired, so the Overview and Reports now show admissions and discharges
+([admissions and discharge](admissions-discharge.md)). The rest of this page records Step 15;
+its appointment figures, charts and navigation rows are historical.
+
+| Role | Menu | Reports |
+| --- | --- | --- |
+| Admin | Overview, Patients, Staff & Access, Notifications, Reports | Patient registrations, Admissions and discharges |
+| Records Officer | Overview, Patients, Notifications, Reports | Patient registrations, Admissions and discharges |
+| Medical Officer | Overview, Patients, Medical Records, Notifications | None (no Reports menu) |
+
+- **Overview (Phase 19C):** four cards for today (Currently admitted, Total patients or My
+  unfinished records, Admissions today, Discharges today), a live admissions and discharges line
+  chart (Last 7 days, Last 30 days, This month), recent admissions and discharges, Refresh and a
+  Register patient action. The figures refresh every minute while the page is visible. See
+  [final UI/UX audit](final-ui-ux-audit.md). The bullet below describes the earlier Overview.
+- **Overview** had a Today / Last 7 days / Last 30 days period choice and Refresh.
+  - *Current status* (live, independent of the period): **Currently admitted** and unread
+    notifications for everyone; patients on record (with the archived count) for Admin and
+    Records Officer; active staff for Admin; **My unfinished records** for the Medical Officer,
+    explaining that a patient cannot be discharged while one is open.
+  - *Hospital activity* for the period: **Admissions** and **Discharges** for everyone;
+    patients registered for Admin and Records Officer; records documented, records finalized
+    and amendments added (their own) for the Medical Officer.
+  - **Recent admissions** for everyone and **Recent discharges** for Admin and Records Officer,
+    each with "View all in Patients"; then the role's workspace shortcuts.
+- **Reports** (Admin and Records Officer) has two tabs. **Patient registrations** is unchanged.
+  **Admissions and discharges** shows the live current-admissions count, admissions and
+  discharges for the period, and one chart with both series per day, week or month (the same
+  accessible chart, summary and table view as before).
+- No appointment counts, statuses, rates or "upcoming" figures remain anywhere. The Medical
+  Officer's personal clinical activity report was folded into their Overview.
+
 ## Scope and findings
 
 Overview and Reports now use the Step 8 aggregate API
@@ -37,7 +71,9 @@ Contract facts that shaped the UI:
 |---|---|
 | `client/src/api/dashboard.ts` | `dashboardApi.get(query?, signal?)`. It sends only a paired `from`/`to` and validates the role-specific response into a discriminated union. |
 | `client/src/api/reports.ts` | `reportsApi.patients/appointments/clinicalActivity(query?, signal?)` with `from`, `to` and `bucket`, plus the shared aggregate parsers. |
-| `features/dashboard/Overview.tsx` | The role-specific Overview. |
+| `features/dashboard/Overview.tsx` | The role-specific Overview: today's cards, the chart and recent stays. |
+| `features/dashboard/ActivityChart.tsx` | Dependency-free responsive SVG line chart: two series with distinct line styles and marker shapes, a hover and keyboard tooltip, a polite announcement and a data table. |
+| `features/dashboard/dashboard-utils.ts` | Chart periods (whole UTC days), summary wording, the visible-only one-minute refresh and a read hook that keeps the last figures on screen while new ones load. |
 | `features/reports/Reports.tsx` | Report types, filters and the patient, appointment and clinical views. |
 | `features/reports/TrendChart.tsx` | Dependency-free SVG bar chart with summary, legend and data table. |
 | `features/reports/ReportParts.tsx` | KPI card, status breakdown, feedback, skeleton and section heading. |

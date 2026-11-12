@@ -1,0 +1,38 @@
+/* Connection-required screen, update notice and installation, on the shared design tokens. */
+/* Above every dialog (1100), so no open form, record or message stays visible while offline. */
+.offline-overlay { position: fixed; inset: 0; z-index: 1500; overflow-y: auto; background: var(--bg); }
+.offline-state .recovery-panel { display: grid; justify-items: center; gap: 4px; }
+.offline-state h1 { max-width: 30ch; font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; }
+.offline-state h1:focus { outline: none; }
+.offline-state h1:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; border-radius: var(--radius-sm); }
+.offline-icon { color: var(--brand-strong); margin-bottom: 8px; }
+.offline-still { color: var(--warning); font-weight: 600; }
+
+/* Below dialogs (1100): while a dialog is open the notice cannot be used, so no form is refreshed away. */
+.update-notice { position: fixed; right: 16px; bottom: 16px; z-index: 900; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  max-width: min(440px, calc(100vw - 32px)); padding: 12px 14px; border: 1px solid var(--info-line); border-radius: var(--radius);
+  background: var(--surface-raised); color: var(--ink); box-shadow: var(--shadow-raised); }
+.update-notice p { margin: 0; flex: 1 1 200px; font-size: var(--text-md); line-height: 1.5; overflow-wrap: anywhere; }
+.update-notice p span { display: block; color: var(--muted); font-size: var(--text-sm); }
+
+.install-text { margin: 0 0 12px; color: var(--deep); font-size: var(--text-md); line-height: 1.55; }
+.install-steps { margin: 0 0 8px; padding-left: 22px; display: grid; gap: 8px; color: var(--deep); font-size: var(--text-md); line-height: 1.5; }
+.sidebar-install { margin-top: -6px; }
+
+.security-form h1:focus { outline: none; }
+.security-form h1:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; border-radius: var(--radius-sm); }
+.security-form .staff-form { margin-top: 18px; }
+.security-form .modal-footer { justify-content: space-between; }
+.security-identity { margin: 0 0 4px; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.login-forgot { margin-top: 12px; }
+.login-forgot .button-link { font-size: var(--text-md); }
+.login-forgot-note svg { flex: none; margin-top: 2px; color: var(--info); }
+.login-forgot-note { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--info-line); border-radius: var(--radius-sm); background: var(--info-bg); color: var(--ink); font-size: var(--text-md); line-height: 1.5; }
+
+@media (max-width: 480px) {
+  .update-notice { left: 16px; right: 16px; max-width: none; }
+  .security-form .modal-footer { flex-direction: column-reverse; align-items: stretch; }
+}
+
+/* The app wrapper adds no box of its own; it only carries inert while offline. */
+.app-frame { display: contents; }

@@ -6,6 +6,23 @@ database and error architecture. There are no appointment, encounter, diagnosis,
 prescription, notification, reporting or dashboard APIs in this step. The
 frontend continues to use mocks and simulated login.
 
+## Phase 19A changes
+
+[Admissions and discharge](admissions-discharge.md) changed the patient API as follows:
+
+- The Medical Officer (`DOCTOR_IN_CHARGE`) may now register patients (`PATIENT_CREATE`) so a
+  patient can be registered and admitted in one sitting. Editing and archiving stay with Admin and
+  Records Officer.
+- Patient responses add `currentAdmission`: `{ id, admissionNumber, roomNumber, admittedAt }` for
+  a patient who is currently admitted, otherwise `null`.
+- `POST /:id/archive` returns `409 PATIENT_CURRENTLY_ADMITTED` while the patient is admitted; a
+  database trigger enforces the same rule. Discharge first.
+- `GET /:patientId/medications` (`CLINICAL_RECORD_READ`) returns the patient's medication orders;
+  see [clinical records API](clinical-records-api.md).
+- The registration screen no longer asks for a phone number. The API still accepts an optional
+  `phone` and keeps every stored number. Because the probable-duplicate check below needs both
+  date of birth and phone, it now rarely applies to new registrations.
+
 ## Findings and scope
 
 The existing Patient model has UUID identity, a database-generated patient number,
@@ -34,12 +51,16 @@ or permissions. Staff-administration `requireRole('ADMIN')` remains unchanged.
 | Permission | ADMIN | RECORDS_OFFICER | DOCTOR_IN_CHARGE |
 | --- | --- | --- | --- |
 | PATIENT_READ | Yes | Yes | Yes |
-| PATIENT_CREATE | Yes | Yes | No |
+| PATIENT_CREATE | Yes | Yes | Yes (Phase 19A) |
 | PATIENT_UPDATE | Yes | Yes | No |
 | PATIENT_ARCHIVE | Yes | Yes | No |
-| CLINICAL_RECORD_READ | No | No | Reserved for future clinical routes |
-| CLINICAL_RECORD_CREATE | No | No | Reserved for future clinical routes |
-| CLINICAL_RECORD_AMEND | No | No | Reserved for future clinical routes |
+| CLINICAL_RECORD_READ | No | No | Yes (Step 6) |
+| CLINICAL_RECORD_CREATE | No | No | Yes (Step 6) |
+| CLINICAL_RECORD_AMEND | No | No | Yes (Step 6) |
+| ADMISSION_READ, ADMISSION_CREATE, ADMISSION_UPDATE | Yes | Yes | Yes (Phase 19A) |
+| ADMISSION_DISCHARGE | No | No | Yes (Phase 19A) |
+| MEDICATION_CATALOG_READ | Yes | No | Yes (Phase 19B) |
+| MEDICATION_CATALOG_MANAGE | Yes | No | No (Phase 19B) |
 
 ADMIN manages staff and administrative demographics; that technical authority
 does not imply access to clinical notes. The doctor's future clinical permissions
@@ -88,7 +109,7 @@ from the allowed fields; request objects are never spread into Prisma writes.
 
 ```text
 id, patientNumber, firstName, middleName, lastName, dateOfBirth,
-phone, archivedAt, createdAt, updatedAt
+phone, archivedAt, createdAt, updatedAt, currentAdmission (Phase 19A)
 ```
 
 DOB is a date-only string or null. Timestamps are UTC ISO strings, with nullable
@@ -109,7 +130,7 @@ Every `:id` is the internal UUID, not the display patient number.
 | GET `/` | PATIENT_READ | page, limit, search, archived | 200; `data.items` DTOs and `data.pagination` | VALIDATION_ERROR |
 | GET `/:id` | PATIENT_READ | UUID; no clinical expansions | 200; `data.patient` DTO | VALIDATION_ERROR, PATIENT_NOT_FOUND |
 | PATCH `/:id` | PATIENT_UPDATE | Nonempty subset of demographic input fields | 200; `data.patient` DTO | VALIDATION_ERROR, INVALID_PATIENT_DATA, PATIENT_NOT_FOUND, PATIENT_ARCHIVED, POSSIBLE_DUPLICATE_PATIENT |
-| POST `/:id/archive` | PATIENT_ARCHIVE | Empty object or no body | 200; `data.patient` DTO | VALIDATION_ERROR, PATIENT_NOT_FOUND |
+| POST `/:id/archive` | PATIENT_ARCHIVE | Empty object or no body | 200; `data.patient` DTO | VALIDATION_ERROR, PATIENT_NOT_FOUND, PATIENT_CURRENTLY_ADMITTED |
 | POST `/:id/reactivate` | PATIENT_ARCHIVE | Empty object or no body | 200; `data.patient` DTO | VALIDATION_ERROR, PATIENT_NOT_FOUND, POSSIBLE_DUPLICATE_PATIENT |
 
 All routes may also return AUTHENTICATION_REQUIRED (401), FORBIDDEN (403),
@@ -160,10 +181,11 @@ Offset pagination is intentionally bounded, not a consistent export snapshot.
 
 Search is a trimmed, maximum-100-character literal substring across patientNumber,
 firstName, middleName and lastName, case-insensitively. A phone-like query is also
-searched against normalized phone digits. SQL LIKE wildcard characters are
-escaped; no user-controlled raw SQL or arbitrary Prisma filters are used. This
-does not combine name fields into a synthetic full name or search symptoms,
-diagnoses, notes or unsupported email fields. Existing btree indexes help ordering
+searched against normalized phone digits. Since Phase 19C a query of several words also matches
+when every word (at most five) is found in one of those fields, so "Ama Mensah" or a name with
+part of the patient number finds the patient. SQL LIKE wildcard characters are
+escaped; no user-controlled raw SQL or arbitrary Prisma filters are used. Search
+does not cover symptoms, diagnoses, notes or unsupported email fields. Existing btree indexes help ordering
 and exact lookup; substring searches can still scan. Trigram/full-text indexing
 and query cost controls should follow measured workload requirements.
 
@@ -241,9 +263,9 @@ before demographic editing; edits return 409 PATIENT_ARCHIVED otherwise.
 Archive sets archivedAt; reactivation clears it on the same patient UUID/number.
 Both commands are idempotent: repeating the current state returns unchanged data,
 without updating timestamps or emitting a second mutation audit. Archival never
-deletes appointments, encounters or identity/history. There is no DELETE route.
-Future appointment/encounter creation must reject archived patients; those APIs
-and that future invariant are not implemented here.
+deletes admissions, appointments, encounters or identity/history. There is no DELETE route.
+Admission and new clinical records reject archived patients, and a currently admitted patient
+cannot be archived.
 
 ## Audits, migration and privacy
 

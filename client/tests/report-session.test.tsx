@@ -12,7 +12,7 @@ const state = { dashboard: 200, report: 200, calls: [] as string[] }
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
 const ok = (data: unknown) => json(200, { success: true, data })
 const failure = (status: number, code: string) => json(status, { success: false, error: { code, message: 'Refused', requestId: `req-${status}` } })
-const user = { id: '90000000-0000-4000-8000-000000000009', staffNumber: 'STF-SESSION', firstName: 'Sam', lastName: 'Session', email: 'sam@example.test', role: 'RECORDS_OFFICER', status: 'ACTIVE' }
+const user = { id: '90000000-0000-4000-8000-000000000009', staffNumber: 'STF-SESSION', firstName: 'Sam', lastName: 'Session', email: 'sam@example.test', role: 'RECORDS_OFFICER', status: 'ACTIVE', mustChangePassword: false }
 let host: HTMLDivElement, root: Root
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('fetch', fetcher); resetApiSession()

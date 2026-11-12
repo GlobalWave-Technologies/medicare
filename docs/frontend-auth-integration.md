@@ -87,9 +87,9 @@ login role input, URL/localStorage role lookup or manual role switch.
 
 This application currently navigates with in-memory `View` state, not URL routes.
 AuthGate protects the entire shell and returns to the login view on session loss.
-During restoration it does not mount either login or protected content. Admin
-and Doctor land on Overview; Records Officer lands on Patients, following existing
-navigation. Disallowed view requests fall back to the role's first allowed view
+During restoration it does not mount either login or protected content. Every
+role lands on Overview (since Phase 19A; Records Officer previously landed on Patients).
+`DOCTOR_IN_CHARGE` is labelled "Medical Officer". Disallowed view requests fall back to the role's first allowed view
 without an effect/setState loop. The shell is keyed by staff identity/role so a
 new account cannot inherit the previous user's open dialogs or navigation state.
 Frontend controls are presentation only; backend authorization remains authoritative.

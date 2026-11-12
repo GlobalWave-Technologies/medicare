@@ -1,9 +1,11 @@
 import { mutation, request } from './client'
 
+// The current stay, if the patient is in hospital now (at most one).
+export type CurrentAdmission = { id: string; admissionNumber: string; roomNumber: string; admittedAt: string }
 export type Patient = {
   id: string; patientNumber: string; firstName: string; middleName: string | null
   lastName: string; dateOfBirth: string | null; phone: string | null
-  archivedAt: string | null; createdAt: string; updatedAt: string
+  archivedAt: string | null; createdAt: string; updatedAt: string; currentAdmission: CurrentAdmission | null
 }
 export type PatientPagination = { page: number; limit: number; total: number; totalPages: number }
 export type CreatePatientInput = {

@@ -1,7 +1,7 @@
 import type { StaffUser } from '../src/api/auth'
 import type { InboxNotification, NotificationPage } from '../src/api/notifications'
 
-export const staff = (role: StaffUser['role']): StaffUser => ({ id: '44444444-4444-4444-8444-444444444444', staffNumber: 'STF-INBOX', firstName: 'Inbox', lastName: 'Staff', email: 'inbox@example.test', role, status: 'ACTIVE' })
+export const staff = (role: StaffUser['role']): StaffUser => ({ id: '44444444-4444-4444-8444-444444444444', staffNumber: 'STF-INBOX', firstName: 'Inbox', lastName: 'Staff', email: 'inbox@example.test', role, status: 'ACTIVE', mustChangePassword: false })
 export const appointmentNotice: InboxNotification = {
   id: 'c7e0a15e-4471-44f3-97da-f01988183f13', type: 'DIRECT', title: 'New appointment', message: 'An appointment has been assigned to you.',
   createdAt: '2026-11-04T09:00:00.000Z', target: { type: 'APPOINTMENT', id: '33333333-3333-4333-8333-333333333333' }, readAt: null,

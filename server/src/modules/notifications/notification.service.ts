@@ -88,21 +88,3 @@ export function broadcastNotification(db: PrismaClient, auth: AuthContext, conte
     return { value: { notification: value, recipientCount: recipients.length }, resource: { notificationId: value.id } }
   }))
 }
-
-const appointmentMessages = {
-  assigned: ['New appointment', 'An appointment has been assigned to you.'],
-  rescheduled: ['Appointment rescheduled', 'An appointment assigned to you has been rescheduled.'],
-  reassigned: ['Appointment reassigned', 'An appointment previously assigned to you has been reassigned.'],
-  cancelled: ['Appointment cancelled', 'An appointment assigned to you has been cancelled.'],
-} as const
-// Called only inside the existing appointment transaction after its auth/patient locks.
-// No notices for inactive/non-doctor historical assignees. Eligible delivery is required.
-export async function createAppointmentNotification(tx: Prisma.TransactionClient, senderId: string, appointmentId: string,
-  recipientId: string | null, event: keyof typeof appointmentMessages) {
-  if (!recipientId) return
-  const recipient = await tx.staffUser.findFirst({ where: { id: recipientId, status: 'ACTIVE', role: 'DOCTOR_IN_CHARGE' }, select: { id: true } })
-  if (!recipient) return
-  const [title, message] = appointmentMessages[event]
-  await tx.notification.create({ data: { senderId, appointmentId, type: 'DIRECT', title, message,
-    recipients: { create: { staffUserId: recipient.id } } }, select: { id: true } })
-}

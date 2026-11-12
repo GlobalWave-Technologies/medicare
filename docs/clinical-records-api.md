@@ -5,6 +5,20 @@ Encounter, EncounterComplaint and Diagnosis schema, permission vocabulary, sessi
 security, DTO conventions and transactional audits. It adds amendments and database
 immutability protections. Frontend integration is a separate phase.
 
+**Phase 19A.** Clinical records now belong to a hospital stay
+([admissions and discharge](admissions-discharge.md)). A new record names a current admission
+(`admissionId`) instead of a patient or appointment; the patient comes from the admission and the
+room defaults to the admission's current room. Records carry structured **medication orders**,
+handled like diagnoses. Appointment linking is gone; records created earlier keep their
+appointment reference or none and remain readable, editable while still drafts, and amendable.
+
+**Phase 19B.** Each new medication order names a medicine from the
+[medication catalog](medication-catalog-prescribing.md) by `medicationId`; the server copies its
+name into `medicine`. Orders add `strength`; dose, route and frequency are required. A medicine
+deactivated in the catalog cannot be newly ordered (`409 MEDICATION_INACTIVE`) but may stay on a
+draft that already has it. The medication history accepts `admissionId` or `excludeAdmissionId`.
+"DOCTOR_IN_CHARGE" is shown as "Medical Officer" in the product.
+
 ## Authorization and authorship
 
 | Current staff role | Read | Create/draft/finalize | Amend |
@@ -24,7 +38,6 @@ The current product has no reliable treatment-relationship model. Active doctors
 therefore read all encounters, including other doctors' drafts, archived-patient
 history and legacy records. This is an explicit broad-access policy; treatment
 relationship restrictions and exceptional access require a later product decision.
-Appointment visibility remains restricted to each doctor's assigned appointments.
 
 Editing, finalization and amendment require BOTH clinicianId and createdById to
 match the authenticated doctor. New records derive both from the session. Legacy
@@ -47,6 +60,7 @@ not require CSRF. IDs are UUIDs; unknown fields are rejected.
 | POST /encounters/:id/finalize | CREATE, original author, DRAFT | 200, data.encounter detail |
 | POST /encounters/:id/amend | AMEND, original author, REVIEWED | 201, data.encounter detail including amendments |
 | GET /patients/:patientId/encounters | READ | 200, data.items summaries and data.pagination |
+| GET /patients/:patientId/medications | READ | 200, data.items medication history and data.pagination (Phase 19A) |
 
 Success envelopes contain `success: true`. Errors contain `success: false` and
 `error: { code, message, requestId }`; X-Request-Id is also returned. There is no
@@ -55,23 +69,25 @@ Ordinary patient demographics endpoints never embed clinical records.
 
 ## Creation and field validation
 
-Example request (replace the patient UUID with an existing active patient):
+Example request (replace the admission UUID with a current admission):
 
 ```json
 {
-  "patientId": "89f788fb-b4c5-4437-a8e2-a3d16adcc5a0",
+  "admissionId": "4b0e3f4e-7c1a-4f7e-9d55-2f1f0f6a9c21",
   "occurredAt": "2026-10-09T09:00:00Z",
   "complaints": [{ "description": "Example presenting complaint" }],
   "diagnoses": [{ "description": "Example finding", "code": null }],
+  "medications": [{ "medicationId": "0f4c8a52-5d0e-4b1a-9b7e-3c2d1e0f9a87", "strength": "500 mg", "dose": "1 tablet", "route": "Oral", "frequency": "Twice daily", "duration": "5 days" }],
   "clinicalNotes": "Example clinical note",
   "treatmentPlan": "Example plan"
 }
 ```
 
 The database generates UUIDs and independent `MR-<uppercase UUID>` references.
-Initial status is always DRAFT. Only patientId is required. appointmentId is
-optional/nullable; omitted occurredAt uses server time. Author, clinician, receiver,
-reference, status, review/void metadata and system timestamps are not accepted.
+Initial status is always DRAFT. Only admissionId is required; patientId and appointmentId are
+not accepted. Omitted occurredAt uses server time; omitted roomLabel records the admission's
+current room (an explicit null records none). Author, clinician, receiver, reference, status,
+review/void metadata and system timestamps are not accepted.
 
 | Editable field | Validation |
 | --- | --- |
@@ -81,6 +97,7 @@ reference, status, review/void metadata and system timestamps are not accepted.
 | followUpAt | Optional/null, timezone-aware, at or after occurredAt |
 | complaints | At most 30 objects; description required, 1–200 characters; duplicate trimmed descriptions rejected |
 | diagnoses | At most 30 objects; description required, 1–500 characters; optional/null code up to 64 and notes up to 5,000 |
+| medications | At most 30 objects; `medicationId` (an active catalog medicine, or one already on this draft), dose (1–100), route (1–50) and frequency (1–100) required; optional/null strength (100), duration (100) and notes (2,000). `medicine` is not accepted |
 
 Text is trimmed at its edges, preserving Unicode terminology and internal line
 breaks. Empty optional text becomes null. Unsafe control characters are rejected.
@@ -89,19 +106,21 @@ seconds, Z or an explicit offset, and at most millisecond precision. UTC is retu
 Historical occurredAt values support late entry; createdAt retains the actual
 entry time. The global 100 KiB JSON limit also applies to combinations of fields.
 
-Complaints and diagnoses belong to the encounter, never permanently to Patient.
-No prescription, severity/duration, SOAP or coding registry model was invented.
+Complaints, diagnoses and medication orders belong to the encounter, never permanently to
+Patient. Medication orders record what was prescribed from the catalog; there is no dosing check,
+dispensing or administration record. No severity/duration, SOAP or coding registry model was invented.
 
-## Appointment and patient rules
+## Admission and patient rules
 
-Linked appointments must exist, belong to the same patient, be assigned to the
-session's doctor, and be CHECKED_IN or COMPLETED. SCHEDULED, CONFIRMED, CANCELLED
-and NO_SHOW are rejected. The appointment row is locked before eligibility checks.
-The existing composite foreign key `(appointmentId, patientId)` prevents patient
-mismatch; its unique pair permits at most one encounter per non-null appointment.
-Concurrent creation is protected by this database uniqueness as well as locking.
-Multiple null appointment links are allowed for walk-ins/emergencies; no artificial
-appointment is created. appointmentId and patientId cannot change after creation.
+The admission must exist (`404 ADMISSION_NOT_FOUND`) and be `ADMITTED`
+(`409 ADMISSION_NOT_CURRENT`); a discharged stay accepts no new records. Creation takes a shared
+lock on the admission row, so a concurrent discharge waits and is then refused because the new
+record is a draft. The composite foreign key `(admissionId, patientId)` keeps the record on the
+admission's own patient, and a trigger refuses new records on a stay that is not current and any
+change of a record's admission. patientId and admissionId cannot change after creation.
+
+Legacy appointment links stay as stored: the composite `(appointmentId, patientId)` key and its
+one-encounter-per-appointment uniqueness remain, but the API makes no new links.
 
 Creating, editing or finalizing requires an unarchived patient. Archived history
 remains readable, and its original doctor may append corrections to reviewed
@@ -115,23 +134,23 @@ finalizedAt column. VOIDED is an existing terminal historical state, readable bu
 not editable or amendable through this API; this step provides no void operation.
 
 PATCH accepts only the editable fields above and requires a nonempty object.
-Omitted fields remain unchanged. A supplied complaints or diagnoses array replaces
+Omitted fields remain unchanged. A supplied complaints, diagnoses or medications array replaces
 that entire collection atomically; an empty array clears it. Replacement can change
-child IDs. Complaints and diagnoses are returned in the order they were supplied;
+child IDs. Complaints, diagnoses and medication orders are returned in the order they were supplied;
 each written child receives a distinct creation timestamp in entry order. This
 applies only to drafts; prior draft content is not versioned, although each
 successful edit records an audit event.
 
 Finalization accepts an empty object or no body. At least one nonempty clinical
-note, history summary, treatment plan, complaint or diagnosis is required. Room
+note, history summary, treatment plan, complaint, diagnosis or medication order is required. Room
 and follow-up metadata alone are insufficient. occurredAt must have been reached
 before finalization, even within the creation clock tolerance. The transaction sets
 REVIEWED and reviewedAt, records an audit event and preserves clinical authorship.
-Repeated finalization returns ENCOUNTER_FINALIZED. Appointment status is unchanged;
-appointment completion remains an explicit scheduling operation.
+Repeated finalization returns ENCOUNTER_FINALIZED. A medication order counts as clinical
+content. Finalizing every draft on a stay is what allows the stay to be discharged.
 
 Reviewed and voided parent records cannot be updated or deleted by normal SQL
-while integrity triggers are enabled. Their complaints/diagnoses cannot be added,
+while integrity triggers are enabled. Their complaints/diagnoses/medication orders cannot be added,
 changed, moved or removed. Triggers lock the parent to coordinate direct child
 writes with finalization. TRUNCATE is blocked for all clinical-history tables.
 Draft parent deletion is not universally blocked by SQL (existing restrictive
@@ -152,19 +171,18 @@ amendment is additional text, not a silent replacement of structured diagnoses.
 Distinct amendment POSTs create separate entries; an identical resend is rejected
 (see below). Amendments take no `Idempotency-Key`.
 
-`POST /encounters` (linked or walk-in) accepts an optional `Idempotency-Key`; see
+`POST /encounters` accepts an optional `Idempotency-Key`; see
 [mutation idempotency](idempotency.md). The same doctor resending the same accepted
 draft with the same key within 24 hours receives the encounter it created (`201`,
 `Idempotency-Replayed: true`). No second `MEDICAL_RECORD_CREATED` and no view audit
 are written. Changed content under the same key returns `409 IDEMPOTENCY_KEY_REUSED`.
-Only a keyed HMAC of the accepted fields is stored, never clinical text. A different
-key, or none, for an appointment that already has an encounter still returns
-`APPOINTMENT_ALREADY_HAS_ENCOUNTER`.
+Only a keyed HMAC of the accepted fields (including the admission and medication orders) is
+stored, never clinical text.
 
 ## Queries and DTOs
 
 Both list routes accept page (default 1, maximum 100,000), limit (default 20,
-maximum 100), clinicianId, appointmentId, status, dateFrom, dateTo and search.
+maximum 100), clinicianId, admissionId, status, dateFrom, dateTo and search.
 The general collection also accepts patientId; the history route rejects that
 query parameter so it cannot override its path scope. Dates filter occurredAt
 inclusively and dateFrom cannot exceed dateTo. Search is a maximum 100-character,
@@ -181,12 +199,14 @@ Summary DTO fields:
 - id, reference, status, occurredAt, reviewedAt, createdAt.
 - patient: id, patientNumber, firstName, middleName, lastName.
 - clinician (nullable) and author: id, staffNumber, firstName, lastName.
-- appointment (nullable): id, reference.
+- admission (nullable for legacy records): id, admissionNumber.
+- appointment (nullable; legacy records only): id, reference.
 - diagnoses: id, description, code.
 
 Detail adds roomLabel, historySummary, clinicalNotes, treatmentPlan, followUpAt,
 updatedAt, voidedAt, voidReason; complaints with id/description/createdAt;
-diagnosis notes/createdAt; amendments with id/reason/content/createdAt and minimal
+diagnosis notes/createdAt; medications with id/medicine/dose/route/frequency/duration/notes/createdAt;
+amendments with id/reason/content/createdAt and minimal
 author identity. Child collections are ordered by createdAt then id ascending.
 Explicit selectors and presenters exclude credentials, sessions, staff email,
 patient contact details, audit rows and internal fields used only for authorization.
@@ -203,11 +223,13 @@ long notes and amendment text are not included in list payloads.
 | Finalize | MEDICAL_RECORD_FINALIZED |
 | Append correction | MEDICAL_RECORD_AMENDED |
 | Patient history page | One MEDICAL_HISTORY_VIEWED event for the patient |
+| Medication history page | One MEDICAL_HISTORY_VIEWED event with changedFields `medications` |
 
 History records one event even for an empty existing-patient page, not one event
 per encounter. General collection browsing creates no per-row view events.
 Audit metadata contains only source API and applicable changedFields classification
-(clinicalRecord or status). It never contains clinical content, search strings,
+(clinicalRecord, status, or medications when orders were written). It never contains clinical
+content, medicine names, search strings,
 old/new values or amendment bodies. Actor/entity IDs and request correlation
 identify the operation. Audit insertion shares the operation's transaction; audit
 failure rolls back writes and prevents audited detail/history disclosure.
@@ -220,9 +242,9 @@ redaction cannot make arbitrary log-message text safe.
 
 Transactions reuse the shared authorization advisory lock (key 1), with a shared
 patient-state lock (key 2) for writes. Current account/session permissions are
-checked after these locks. Linked creation locks the appointment; mutations lock
+checked after these locks. Creation locks the admission FOR SHARE; mutations lock
 the encounter FOR UPDATE; detail uses FOR SHARE. Child changes and their audit
-commit together. Standard lock order is authorization, patient state, appointment
+commit together. Standard lock order is authorization, patient state, admission
 where applicable, then encounter/children. Cooperating direct writers must observe
 this order; parent-locking triggers protect historical content but do not turn
 arbitrary SQL into authorized API operations. Transactions use READ COMMITTED and
@@ -232,10 +254,9 @@ a 10-second deadline, within the existing bounded connection pool.
 
 Authentication/CSRF errors use the existing auth contract. Role denial is 403
 FORBIDDEN; another doctor's mutation is 403 ENCOUNTER_AUTHOR_REQUIRED. Missing
-resources use 404 PATIENT_NOT_FOUND, APPOINTMENT_NOT_FOUND or ENCOUNTER_NOT_FOUND.
+resources use 404 PATIENT_NOT_FOUND, ADMISSION_NOT_FOUND or ENCOUNTER_NOT_FOUND.
 Invalid schemas use 400 VALIDATION_ERROR; invalid clinical times use 400
-INVALID_ENCOUNTER_TIME. Business conflicts use 409 PATIENT_ARCHIVED,
-APPOINTMENT_NOT_ELIGIBLE_FOR_ENCOUNTER, APPOINTMENT_ALREADY_HAS_ENCOUNTER,
+INVALID_ENCOUNTER_TIME. Business conflicts use 409 PATIENT_ARCHIVED, ADMISSION_NOT_CURRENT,
 ENCOUNTER_REFERENCE_CONFLICT, ENCOUNTER_FINALIZED, ENCOUNTER_NOT_EDITABLE,
 EMPTY_CLINICAL_RECORD, ENCOUNTER_NOT_FINALIZED or DUPLICATE_AMENDMENT. An
 amendment whose author, reason and content exactly match an existing amendment on

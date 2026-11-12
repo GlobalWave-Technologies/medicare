@@ -1,0 +1,45 @@
+/* Admissions: the stay section of a patient record, admission lists, dialogs and room history. Tokens only. */
+.admission-section { margin-top: 22px; }
+.admission-section > h3 { margin: 0 0 10px; color: var(--deep); font-size: 16px; }
+.admission-facts { margin: 0; }
+.admission-room { font-weight: 700; }
+.patient-actions.admission-actions { margin: 0 0 14px; padding-top: 0; border-top: 0; }
+.admission-actions-end { margin-left: auto; }
+.admission-none { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 16px 18px; border: 1px dashed var(--line-strong); border-radius: var(--radius); background: var(--surface-muted); }
+.admission-none p { margin: 0; }
+.admission-empty, .admission-muted { margin: 0; color: var(--muted); font-size: var(--text-md); }
+/* Admitted and Discharged look the same everywhere: blue for in hospital, grey for a closed stay. */
+.status.admission-admitted { --tone-fg: var(--info); --tone-bg: var(--info-bg); --tone-line: var(--info-line); }
+.status.admission-discharged, .status.admission-none-status { --tone-fg: var(--neutral); --tone-bg: var(--neutral-bg); --tone-line: var(--neutral-line); }
+.admission-by { display: block; margin-top: 2px; color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
+.admission-table td { overflow-wrap: anywhere; }
+.admission-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.patients-table.admission-table th:first-child { width: 30%; }
+.admission-table th:last-child { width: 280px; }
+.admission-table:not(:has(.button-danger-quiet)) th:last-child { width: 150px; }
+.admission-form fieldset { display: grid; gap: 16px; min-width: 0; margin: 0 0 6px; padding: 0; border: 0; }
+.admission-form label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--deep); font-size: var(--text-md); font-weight: 600; }
+.admission-form .callout { margin: 0 0 16px; }
+.admission-form .notice { margin: 0 0 14px; }
+.admission-current-room { margin: 0 0 14px; color: var(--muted); font-size: var(--text-md); }
+.admission-current-room strong { color: var(--deep); }
+.admission-error p { margin: 0; }
+.admission-error .button { margin-top: 10px; }
+.room-history { display: grid; gap: 12px; margin: 0; padding: 0 0 0 16px; border-left: 2px solid var(--brand-line); list-style: none; }
+.room-history p { margin: 0; color: var(--ink); font-size: var(--text-md); line-height: 1.55; overflow-wrap: anywhere; }
+.room-history .room-history-meta { color: var(--muted); font-size: var(--text-sm); }
+.room-history .room-history-note { margin-top: 4px; color: var(--deep); }
+.admission-record .clinical-workspace { margin-top: 22px; }
+.patient-views { margin-top: 18px; }
+.patients-toolbar.patients-toolbar-single { grid-template-columns: minmax(0, 1fr) auto; }
+@media (max-width: 600px) { .admission-actions-end { margin-left: 0; } }
+/* Phone cards: the row's actions share one full-width row at the bottom of the card. */
+@media (max-width: 1100px) {
+  .admission-table td.admission-row-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; padding-top: 4px; }
+  .admission-table td.admission-row-actions .button { width: 100%; }
+}
+.stay-summary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px 16px; margin: 0 0 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-muted); }
+.stay-summary dt { color: var(--muted); font-size: var(--text-xs); font-weight: 600; }
+.stay-summary dd { display: grid; margin: 2px 0 0; color: var(--deep); font-size: var(--text-md); overflow-wrap: anywhere; }
+.stay-summary .patient-number { color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 600px) { .stay-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .stay-summary > div:first-child { grid-column: 1 / -1; } }

@@ -5,20 +5,32 @@ and use `{ success: true, data: ... }`. GET requests do not require CSRF. The
 server derives role and identity from the session; clients cannot choose them.
 Existing authentication, authorization and safe error envelopes apply.
 
+**Phase 19A** replaced appointment figures with admissions and discharges
+([admissions and discharge](admissions-discharge.md)). The appointment report and the separate
+personal clinical-activity report were removed; the Medical Officer's own clinical activity now
+appears only on their Overview. Sections below describe the current contracts; the historical
+appointment report is kept at the end for reference.
+
+**Phase 19C** reshaped the dashboard around a live chart: it now returns today's admissions and
+discharges and a daily admissions/discharges series for the chart period (last 7 UTC days by
+default, at most 31 days). The Medical Officer's period clinical counts (`period.clinical`), the
+administrator's active-staff counts and the period registration count were removed from the
+dashboard; registrations remain in the patient report. See
+[final UI/UX audit](final-ui-ux-audit.md).
+
 ## Permissions and routes
 
 | GET route | ADMIN | RECORDS_OFFICER | DOCTOR_IN_CHARGE |
 | --- | --- | --- | --- |
-| `/api/v1/dashboard` | Administrative dashboard | Records dashboard | Personal clinical dashboard |
+| `/api/v1/dashboard` | Administrative dashboard | Records dashboard | Medical Officer dashboard |
 | `/api/v1/reports/patients` | Allowed | Allowed | Forbidden |
-| `/api/v1/reports/appointments` | Organization aggregate | Organization aggregate | Forbidden |
-| `/api/v1/reports/clinical-activity` | Forbidden | Forbidden | Own authored activity only |
+| `/api/v1/reports/admissions` | Organization aggregate | Organization aggregate | Forbidden |
 
 Permissions are `DASHBOARD_VIEW_ADMIN`, `DASHBOARD_VIEW_RECORDS`,
-`DASHBOARD_VIEW_CLINICAL`, `REPORT_OPERATIONAL_VIEW` and
-`REPORT_CLINICAL_AGGREGATE_VIEW`. Each role gets only its corresponding dashboard
-permission. ADMIN/RECORDS_OFFICER get operational reporting; only doctors get
-clinical aggregate reporting. ADMIN has no implicit clinical privileges.
+`DASHBOARD_VIEW_CLINICAL` and `REPORT_OPERATIONAL_VIEW`. Each role gets only its
+corresponding dashboard permission. ADMIN/RECORDS_OFFICER get operational reporting; the
+Medical Officer has no Reports screen. ADMIN has no implicit clinical privileges.
+`/api/v1/reports/appointments` and `/api/v1/reports/clinical-activity` now return 404 to signed-in staff.
 
 The service takes a shared authorization lock and rechecks the current session,
 account status and role after waiting. This prevents a queued report from using
@@ -33,7 +45,7 @@ both are required. Examples:
 ```text
 /api/v1/dashboard
 /api/v1/reports/patients?from=2024-02-01T00:00:00Z&to=2024-03-01T00:00:00Z&bucket=week
-/api/v1/reports/clinical-activity?bucket=month
+/api/v1/reports/admissions?bucket=month
 ```
 
 Endpoints must be real ISO calendar timestamps with seconds and an explicit `Z`
@@ -43,13 +55,15 @@ calendar dates, arrays, objects and repeated parameters are rejected.
 
 Ranges are **half-open `[from, to)`**: include the lower instant, exclude the
 upper instant. `from < to` is required, with a maximum duration of 366 elapsed
-24-hour days. Supported UTC endpoint years are 1–9999. Future ranges are allowed
-because appointment reports include planned workload.
+24-hour days. Supported UTC endpoint years are 1–9999. Future ranges are allowed;
+they simply count nothing yet.
 
-With no endpoints, dashboard period is today's UTC midnight through tomorrow's
-UTC midnight. Reports default to the 30 UTC calendar dates ending with today
-(today minus 29 days through tomorrow). The server OS timezone is never used for
-calendar grouping. A requested range replaces the dashboard's default today period.
+With no endpoints, the dashboard chart covers the 7 UTC calendar dates ending with today
+(today minus 6 days through tomorrow's UTC midnight); a dashboard range longer than 31 days is
+rejected with `REPORT_RANGE_TOO_LARGE`. Reports default to the 30 UTC calendar dates ending with
+today (today minus 29 days through tomorrow). The server OS timezone is never used for calendar
+grouping. A requested range replaces the dashboard's default chart period; the `today` counts always
+cover today's UTC date.
 
 Day buckets begin at UTC midnight, week buckets on Monday at UTC midnight, and
 month buckets on the first at UTC midnight. The label `period` is the bucket's
@@ -77,31 +91,45 @@ clinical text, notification content, session data or password fields are returne
 
 `snapshot` fields describe current state when queried, regardless of the selected
 date range. `period`/`summary`/`series` describe activity within the range. These
-are live operational aggregates, not historical as-of snapshots. In particular,
-appointment status counts use **current status** for the selected scheduled dates.
-Later rescheduling/status changes can change a historical report.
+are live operational aggregates, not historical as-of snapshots. Admissions and discharges
+are permanent and their times never change, so a past period's counts only change if a stay is
+back-dated into it.
 
 ## Dashboard contracts
 
-All dashboards return `{ role, generatedAt, range, snapshot, period }`. The common
-snapshot fields are `upcomingAppointments` and `unreadNotifications`.
+All dashboards return `{ role, generatedAt, range, snapshot, today, activity }`:
 
-| Role | Additional snapshot fields | Period fields |
-| --- | --- | --- |
-| ADMIN | `activePatients`, `archivedPatients`, `activeStaff: { total, admins, recordsOfficers, doctors }` | `patientsRegistered`, `appointments` |
-| RECORDS_OFFICER | `activePatients`, `archivedPatients` | `patientsRegistered`, `appointments` |
-| DOCTOR_IN_CHARGE | `currentAuthoredDrafts` | `appointments`, `clinical` |
+```json
+{
+  "role": "RECORDS_OFFICER",
+  "generatedAt": "2026-11-12T09:30:00.000Z",
+  "range": { "from": "2026-11-06T00:00:00.000Z", "to": "2026-11-13T00:00:00.000Z", "bucket": "day", "timezone": "UTC" },
+  "snapshot": { "currentAdmissions": 5, "unreadNotifications": 1, "activePatients": 14, "archivedPatients": 0 },
+  "today": { "admissions": 2, "discharges": 1 },
+  "activity": { "admissions": 8, "discharges": 5, "series": [
+    { "period": "2026-11-06", "admissions": 1, "discharges": 1 },
+    { "period": "2026-11-12", "admissions": 2, "discharges": 1 }
+  ] }
+}
+```
 
-`appointments` has the appointment summary shape below. `clinical` has the clinical
-summary shape below. The dashboard returns no time series. Its range bucket is
-`day` and cannot be client-selected. Doctors' appointment metrics use only rows
-whose `clinicianId` equals their authenticated staff ID. Administrative and records
-appointment metrics cover the organization.
+(The series is shortened here; it has one zero-filled row per UTC day of the range.)
 
-`upcomingAppointments` counts current SCHEDULED/CONFIRMED rows with
-`scheduledStart >= generatedAt`; CHECKED_IN/COMPLETED/CANCELLED/NO_SHOW are excluded.
-It covers all future dates, independently of the selected reporting range.
-Doctor ownership applies here too. `unreadNotifications` counts only current
+| Field | Meaning |
+| --- | --- |
+| `snapshot.currentAdmissions` | Stays with status `ADMITTED` now, hospital-wide |
+| `snapshot.unreadNotifications` | The signed-in user's own unread notifications |
+| `snapshot.activePatients`, `archivedPatients` | ADMIN and RECORDS_OFFICER only |
+| `snapshot.staffActiveNow`, `staffSignedInToday` | ADMIN only (Phase 19D): staff who made a request in the last 5 minutes, and staff who signed in since UTC midnight; counts only |
+| `snapshot.currentAuthoredDrafts` | DOCTOR_IN_CHARGE only: their own clinical records still in draft |
+| `today.admissions`, `today.discharges` | Today's UTC date, by `admittedAt` and `dischargedAt` |
+| `activity` | The chart period: totals and one row per UTC day, admissions by `admittedAt`, discharges by `dischargedAt` |
+
+Every figure is an aggregate count; no patient, staff or clinical record is returned. Admission
+figures cover the whole hospital for every role. The range bucket is always `day` and cannot be
+client-selected.
+
+`unreadNotifications` counts only current
 principal delivery rows with `readAt = null`; reports do not mark anything read.
 Active staff counts require `StaffUser.status = ACTIVE`, grouped by role.
 
@@ -126,9 +154,30 @@ patients later archived. Current active means `archivedAt IS NULL`; archived mea
 non-null. Archival never subtracts historical registrations. The API provides no
 department, age, sex, identity or demographic breakdown.
 
-## Appointment report
+## Admissions report
 
-Returns `{ generatedAt, range, summary, series }`. Both `summary` and each series
+```json
+{
+  "generatedAt": "2026-11-11T12:00:00.000Z",
+  "range": { "from": "2026-11-09T00:00:00.000Z", "to": "2026-11-12T00:00:00.000Z", "bucket": "day", "timezone": "UTC" },
+  "snapshot": { "currentAdmissions": 7 },
+  "summary": { "admissionsInRange": 3, "dischargesInRange": 2 },
+  "series": [
+    { "period": "2026-11-09", "admissions": 1, "discharges": 0 },
+    { "period": "2026-11-10", "admissions": 0, "discharges": 2 },
+    { "period": "2026-11-11", "admissions": 2, "discharges": 0 }
+  ]
+}
+```
+
+Example numbers are illustrative. Admissions are counted by `admittedAt` and discharges by
+`dischargedAt` within the range, so a stay admitted in one period and discharged in another
+counts in both. Re-admissions count as admissions. `currentAdmissions` is live and independent of
+the range. No patient, room or staff detail is returned.
+
+## Appointment report (retired)
+
+Removed in Phase 19A; kept for reference. It returned `{ generatedAt, range, summary, series }`. Both `summary` and each series
 row contain `totalAppointments`, `scheduled`, `confirmed`, `checkedIn`,
 `completed`, `cancelled`, `noShow`, `cancellationRate`, and `noShowRate`. Series
 rows additionally contain `period`.
@@ -140,9 +189,12 @@ Rates are percentages: `cancelled / totalAppointments * 100` and
 denominators produce numeric 0. Overall rates use overall counts, not averages of
 bucket rates. Missing statuses/buckets produce zeros. There is no pagination.
 
-## Clinical activity report
+## Clinical activity
 
-Returns `{ generatedAt, range, snapshot, summary, series }`:
+Since Phase 19C only the Medical Officer dashboard's `snapshot.currentAuthoredDrafts` remains
+(Phase 19A had also kept `period.clinical` on the dashboard; the separate report route with its
+series was removed then). The definitions below are kept for reference. The former report returned
+`{ generatedAt, range, snapshot, summary, series }`:
 
 - `snapshot.currentAuthoredDrafts`: current DRAFT encounters with `createdById`
   equal to the authenticated doctor, regardless of occurredAt/range.
@@ -165,11 +217,11 @@ frequency report and no clinician comparison or organization clinical analytics.
 
 Known, reviewed queries live in `report.queries.ts`. PostgreSQL aggregates counts;
 Node only converts bounded grouped rows, computes rates and fills missing buckets.
-The appointment query yields at most six rows per bucket, and clinical UNION ALL
+The admissions UNION ALL yields at most two rows per bucket, and clinical UNION ALL
 at most three per bucket. SQL count/filter combines active/archived snapshots.
 Prisma count/groupBy handles unread, upcoming, draft and active-staff counts.
 Query count is fixed per endpoint and does not grow with source rows or buckets.
-No full patient, appointment or encounter collections are fetched for counting.
+No full patient, admission or encounter collections are fetched for counting.
 
 Time grouping uses tagged `$queryRaw`/`Prisma.sql` because UTC date_trunc grouping
 is not directly expressed by the existing Prisma groupBy API. Dates, identities
@@ -182,13 +234,14 @@ timestamp-without-zone Date parameter behavior. Transactions also set the local
 timezone to UTC for ORM timestamp comparisons. Exact timestamp
 range predicates remain on the original columns, preserving index eligibility.
 
-Existing indexes reviewed: Patient.createdAt; Appointment.scheduledStart,
-(status, scheduledStart), (clinicianId, scheduledStart); Encounter.createdById
+Existing indexes reviewed: Patient.createdAt; Admission.dischargedAt, (status, admittedAt),
+the partial current-stay index (used by the current count); Encounter.createdById
 and (clinicianId, occurredAt); EncounterAmendment.(authorId, createdAt);
 NotificationRecipient.(staffUserId, readAt, createdAt); StaffUser.(role, status).
 The clinician encounter index does not directly satisfy author-based reporting;
 the author index narrows those rows. There is no reviewedAt compound index or
-Patient.archivedAt index. No new indexes are added without representative evidence.
+Patient.archivedAt index, and no standalone Admission.admittedAt index, so admissions by
+period may scan the stays. No new indexes are added without representative evidence.
 Current snapshot counts still scale with source data, and each doctor's clinical
 range queries may scan that author's history. Production-size EXPLAIN ANALYZE and
 load testing should guide any future compound/partial index or cache.
@@ -201,8 +254,8 @@ bound failures. These tests establish correctness, not throughput targets.
 
 ## Audits, privacy and migration
 
-Each successful clinical-activity GET appends one `CLINICAL_REPORT_VIEWED` event
-inside the same transaction. `entityType=STAFF_USER` and `entityId=actorId` identify
+Before Phase 19A, each successful clinical-activity GET appended one `CLINICAL_REPORT_VIEWED`
+event inside the same transaction; the route is gone, so the value now appears only in history. `entityType=STAFF_USER` and `entityId=actorId` identify
 the personal report scope; metadata is only `{ source: "API" }`. Existing request
 ID, IP and user-agent handling applies. If auditing fails, no result is returned.
 Ordinary dashboards (including doctor dashboards), operational reports, denied

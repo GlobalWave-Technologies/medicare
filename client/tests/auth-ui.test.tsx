@@ -13,7 +13,7 @@ import type { StaffUser } from '../src/api/auth'
 
 let host: HTMLDivElement, root: Root
 const stores: ReturnType<typeof createAuthStore>[] = []
-const user: StaffUser = { id: 'synthetic', firstName: 'Test', lastName: 'Staff', email: 'test@example.test', staffNumber: 'STF-TESTADMIN', role: 'ADMIN', status: 'ACTIVE' }
+const user: StaffUser = { id: 'synthetic', firstName: 'Test', lastName: 'Staff', email: 'test@example.test', staffNumber: 'STF-TESTADMIN', role: 'ADMIN', status: 'ACTIVE', mustChangePassword: false }
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
@@ -68,7 +68,7 @@ it('has email/password labels, no role selector or remember-me control', async (
   expect(field('email').labels?.[0]?.textContent).toContain('Email address')
   expect(field('password').labels?.[0]?.textContent).toContain('Password')
   expect(host.querySelector('select, input[type="radio"], input[type="checkbox"]')).toBeNull()
-  expect(host.textContent).not.toMatch(/Doctor in Charge|Records Officer|Remember me/)
+  expect(host.textContent).not.toMatch(/Medical Officer|Records Officer|Remember me/)
   expect(host.querySelector('button[type="submit"]')).not.toBeNull()
 })
 it('supports password visibility without submitting the form', async () => {
@@ -77,6 +77,14 @@ it('supports password visibility without submitting the form', async () => {
   expect(field('password').type).toBe('text')
   expect(host.querySelector('[aria-label="Hide password"]')?.getAttribute('aria-pressed')).toBe('true')
   expect(login).not.toHaveBeenCalled()
+})
+it('shows a support reference only for an unexpected sign-in failure, in plain words', async () => {
+  const login = vi.fn().mockRejectedValue(new ApiError(500, 'internal stack detail', 'INTERNAL_ERROR', 'req-500'))
+  await act(async () => root.render(<Login onLogin={login} />))
+  await change('email', 'test@example.test'); await change('password', 'private-password'); await submit()
+  const alert = host.querySelector('[role="alert"]')!
+  expect(alert.textContent).toBe('Medicare could not complete this just now. Please try again in a moment.Support reference: req-500')
+  expect(host.textContent).not.toContain('internal stack detail'); expect(host.querySelector('.login-user-icon, .login-footer')).toBeNull()
 })
 it('submits credentials once, disables pending controls and clears password on failure', async () => {
   let reject!: (error: Error) => void
@@ -90,7 +98,8 @@ it('submits credentials once, disables pending controls and clears password on f
   expect(host.textContent).toContain('Signing in')
   await act(async () => reject(new ApiError(401, 'Do not reveal account details', 'INVALID_CREDENTIALS', 'req-login')))
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('Invalid email or password.')
-  expect(host.textContent).toContain('req-login')
+  // A wrong password is an expected answer: no support reference is shown for it.
+  expect(host.textContent).not.toContain('req-login')
   expect(host.textContent).not.toContain('Do not reveal account details')
   expect(field('password').value).toBe(''); expect(field('email').disabled).toBe(false)
 })

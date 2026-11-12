@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, KeyRound, LogOut, RefreshCw, ShieldCheck, UserCog } from 'lucide-react'
+import { Activity, ArrowLeft, KeyRound, LogOut, RefreshCw, ShieldCheck, UserCog } from 'lucide-react'
+import { When } from '../staff-activity/ActivityParts'
 import { ApiError } from '../../api/client'
 import type { StaffMember } from '../../api/staff'
 import { PasswordDialog, RoleDialog, SessionsDialog, StatusDialog } from './StaffActions'
@@ -13,8 +14,8 @@ import {
 type Command = { kind: 'role' } | { kind: 'status'; action: StatusAction } | { kind: 'sessions' } | { kind: 'password' }
 const actionClass: Record<StatusAction['tone'], string> = { positive: 'button-primary', caution: 'staff-button-caution', danger: 'button-danger-quiet' }
 
-export function StaffDetail({ id, initial, selfId, notice: initialNotice = '', onBack, onChanged, onSessionEnded }: {
-  id: string; initial?: StaffMember; selfId: string; notice?: string; onBack: () => void; onChanged: () => void; onSessionEnded: () => void
+export function StaffDetail({ id, initial, selfId, notice: initialNotice = '', onBack, onChanged, onSessionEnded, onViewActivity }: {
+  id: string; initial?: StaffMember; selfId: string; notice?: string; onBack: () => void; onChanged: () => void; onSessionEnded: () => void; onViewActivity?: (id: string) => void
 }) {
   const [revision, setRevision] = useState(0), [command, setCommand] = useState<Command>()
   const [result, setResult] = useState<{ revision: number; user: StaffMember }>(), [notice, setNotice] = useState(initialNotice)
@@ -23,6 +24,8 @@ export function StaffDetail({ id, initial, selfId, notice: initialNotice = '', o
   // A command result is the newest server copy until the next deliberate refresh.
   const fresh = result?.revision === revision ? result.user : read.user
   const member = fresh ?? initial, self = id === selfId
+  // Sign-in times come from the directory read; command results do not carry them.
+  const source = read.user ?? initial, seen = source && 'lastLoginAt' in source ? source : undefined, now = new Date().toISOString()
   const missing = read.error instanceof ApiError && read.error.status === 404
   useEffect(() => { heading.current?.focus() }, [missing])
   function refresh() { setNotice(''); setResult(undefined); setRevision((n) => n + 1) }
@@ -53,7 +56,12 @@ export function StaffDetail({ id, initial, selfId, notice: initialNotice = '', o
     {member && <dl className="staff-identity">
       <div><dt>Staff number</dt><dd>{member.staffNumber}</dd></div>
       <div><dt>Work email</dt><dd>{member.email}</dd></div>
+      {seen && <>
+        <div><dt>Last signed in</dt><dd>{seen.lastLoginAt ? <When value={seen.lastLoginAt} now={now} relative={false} /> : 'Never signed in'}</dd></div>
+        <div><dt>Last active</dt><dd>{seen.lastActivityAt ? <When value={seen.lastActivityAt} now={now} /> : 'No activity recorded'}</dd></div>
+      </>}
     </dl>}
+    {member && onViewActivity && <div className="list-tools"><button type="button" className="button button-ghost" onClick={() => onViewActivity(id)}><Activity size={17} aria-hidden="true" />View activity and sessions</button></div>}
     {read.loading && <p role="status" className="loading-note">Checking the latest account details…</p>}
     {read.error !== undefined && <div className="staff-recovery"><StaffFeedback error={read.error} />
       <p className="staff-note">Account actions are unavailable until the latest details load.</p>

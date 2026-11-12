@@ -8,45 +8,41 @@ import { ErrorBoundary } from '../src/components/ui/ErrorBoundary'
 import { reportRenderFailure } from '../src/components/ui/reportRenderFailure'
 import { PatientModal } from '../src/features/patients/PatientModal'
 import { PatientDetail } from '../src/features/patients/PatientDetail'
-import { AppointmentForm } from '../src/features/appointments/AppointmentForm'
-import { AppointmentDetail } from '../src/features/appointments/AppointmentDetail'
-import { PatientPicker } from '../src/features/appointments/AppointmentPickers'
 import { Records } from '../src/features/records/Records'
 import { Patients } from '../src/features/patients/Patients'
-import { Appointments } from '../src/features/appointments/Appointments'
+import { AdmitDialog, ChangeRoomDialog, DischargeDialog } from '../src/features/admissions/AdmissionDialogs'
 import { EncounterList } from '../src/features/records/EncounterList'
 import { ClinicalCommand } from '../src/features/records/ClinicalCommands'
 import { patientsApi } from '../src/api/patients'
-import { appointmentsApi } from '../src/api/appointments'
+import { admissionsApi } from '../src/api/admissions'
 import { encountersApi } from '../src/api/encounters'
 import { notificationsApi } from '../src/api/notifications'
 import { staffApi } from '../src/api/staff'
 import { dashboardApi } from '../src/api/dashboard'
 import { reportsApi } from '../src/api/reports'
-import { appointmentReport, clinicalReport, dashboardFor, patientReport } from './report-fixtures'
+import { admissionReport, dashboardFor, patientReport } from './report-fixtures'
 import { authStore } from '../src/features/auth/auth-store'
 import type { BackendRole, StaffUser } from '../src/api/auth'
-import { doctor, eligibleAppointment, reviewed as finalized } from './clinical-fixtures'
-import { patient, appointment, clinician, page } from './appointment-fixtures'
+import { doctor, reviewed as finalized } from './clinical-fixtures'
+import { admission, admissionPage, patient } from './admission-fixtures'
+const page = { items: [], pagination: { page: 1, limit: 10, total: 1, totalPages: 1 } }
 
 const identity = vi.hoisted(() => ({ role: 'ADMIN' as BackendRole }))
-vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({ id: '22222222-2222-4222-8222-222222222222', firstName: 'Audit', lastName: 'Staff', email: 'audit@example.test', staffNumber: 'STF-AUDIT', status: 'ACTIVE', role: identity.role }) }))
+vi.mock('../src/features/auth/AuthGate', () => ({ AuthGate: ({ children }: { children: (user: StaffUser) => ReactNode }) => children({ id: '22222222-2222-4222-8222-222222222222', firstName: 'Audit', lastName: 'Staff', email: 'audit@example.test', staffNumber: 'STF-AUDIT', status: 'ACTIVE', mustChangePassword: false, role: identity.role }) }))
 let host: HTMLDivElement, root: Root
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-01T12:00:00Z')); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   host = document.createElement('div'); document.body.append(host); root = createRoot(host, { onCaughtError: () => {} })
   vi.spyOn(patientsApi, 'list').mockResolvedValue({ items: [], pagination: { ...page.pagination, total: 0 } })
   vi.spyOn(patientsApi, 'get').mockResolvedValue({ patient })
-  vi.spyOn(appointmentsApi, 'list').mockResolvedValue({ items: [], pagination: { ...page.pagination, total: 0 } })
-  vi.spyOn(appointmentsApi, 'clinicians').mockResolvedValue({ clinicians: [clinician] })
+  vi.spyOn(admissionsApi, 'list').mockResolvedValue(admissionPage([]))
   vi.spyOn(encountersApi, 'list').mockResolvedValue({ items: [], pagination: { ...page.pagination, total: 0 } })
   vi.spyOn(notificationsApi, 'unreadCount').mockResolvedValue({ count: 0 })
   vi.spyOn(notificationsApi, 'list').mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } })
   vi.spyOn(staffApi, 'list').mockResolvedValue({ users: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } })
   vi.spyOn(dashboardApi, 'get').mockImplementation(async () => dashboardFor(identity.role))
   vi.spyOn(reportsApi, 'patients').mockResolvedValue(patientReport)
-  vi.spyOn(reportsApi, 'appointments').mockResolvedValue(appointmentReport)
-  vi.spyOn(reportsApi, 'clinicalActivity').mockResolvedValue(clinicalReport)
+  vi.spyOn(reportsApi, 'admissions').mockResolvedValue(admissionReport)
   vi.spyOn(window, 'confirm').mockReturnValue(false)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals() })
@@ -71,14 +67,16 @@ it.each(['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const)('%s sees no f
   expect(Boolean(button('Staff & Access'))).toBe(role === 'ADMIN')
   await click('Notifications'); expect(host.textContent).toContain('You’re all caught up'); expect(host.textContent).not.toContain('not available yet')
   expect(host.textContent).not.toMatch(/Staff briefing|Send broadcast/); expect(Boolean(button('New broadcast'))).toBe(role === 'ADMIN')
-  await click('Reports'); expect(host.textContent).not.toMatch(/being prepared|not available|Export|Download|Print|Updated today|Top diagnoses|complaint/i)
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? host.querySelector('#report-title')?.textContent).toBe(role === 'DOCTOR_IN_CHARGE' ? 'My clinical activity' : 'Patient activity')
+  expect(Boolean(button('Reports'))).toBe(role !== 'DOCTOR_IN_CHARGE'); expect(button('Appointments')).toBeUndefined()
+  if (role !== 'DOCTOR_IN_CHARGE') {
+    await click('Reports'); expect(host.textContent).not.toMatch(/being prepared|not available|Export|Download|Print|Updated today|Top diagnoses|complaint/i)
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Patient registrations')
+  }
   expect(encountersApi.list).not.toHaveBeenCalled()
 })
-it('makes admin task cards navigate and opens the real staff workspace', async () => {
+it('makes admin overview cards navigate and opens the real staff workspace', async () => {
   identity.role = 'ADMIN'; await render(<App />)
-  const card = Array.from(host.querySelectorAll<HTMLButtonElement>('.workflow-card')).find(b => b.textContent?.includes('Patient directory'))!
-  await act(async () => card.click()); await tick(); expect(host.querySelector('h2')?.textContent).toBe('Patient directory')
+  await click('View patients'); expect(host.querySelector('h2')?.textContent).toBe('All patients')
   await click('Staff & Access'); expect(host.querySelector('h2')?.textContent).toBe('Staff directory')
   expect(host.textContent).not.toMatch(/not available|NOT YET AVAILABLE/); expect(staffApi.list).toHaveBeenCalled()
   expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('Staff & Access')
@@ -116,11 +114,15 @@ it('guards dirty patient close and page unload without sending a mutation', asyn
   const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); expect(event.defaultPrevented).toBe(true)
   vi.mocked(window.confirm).mockReturnValue(true); await click('Cancel'); expect(close).toHaveBeenCalledOnce(); expect(create).not.toHaveBeenCalled()
 })
-it('guards dirty appointment close without losing the selected fields', async () => {
-  const close = vi.fn(); await render(<AppointmentForm role="ADMIN" appointment={appointment} onClose={close} onSaved={vi.fn()} />)
-  await fill('notes', 'Unsaved schedule'); await click('Cancel'); expect(close).not.toHaveBeenCalled()
-  expect(host.querySelector<HTMLTextAreaElement>('[name="notes"]')!.value).toBe('Unsaved schedule')
-  vi.mocked(window.confirm).mockReturnValue(true); await click('Cancel'); expect(close).toHaveBeenCalledOnce()
+it.each(['admit', 'room', 'discharge'] as const)('guards a dirty %s dialog and page unload without losing what was typed', async (kind) => {
+  const close = vi.fn(), saved = vi.fn()
+  await render(kind === 'admit' ? <AdmitDialog patient={patient} onClose={close} onAdmitted={saved} /> : kind === 'room' ? <ChangeRoomDialog admission={admission} onClose={close} onSaved={saved} />
+    : <DischargeDialog admission={admission} onClose={close} onSaved={saved} />)
+  const name = kind === 'discharge' ? 'dischargeNotes' : 'roomNumber'
+  await fill(name, 'Unsaved text'); await click('Cancel'); expect(close).not.toHaveBeenCalled()
+  expect(host.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`)!.value).toBe('Unsaved text')
+  const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); expect(event.defaultPrevented).toBe(true)
+  vi.mocked(window.confirm).mockReturnValue(true); await click('Cancel'); expect(close).toHaveBeenCalledOnce(); expect(saved).not.toHaveBeenCalled()
 })
 it('protects an unsaved amendment against page unload', async () => {
   await render(<ClinicalCommand encounter={finalized} action="amend" onClose={vi.fn()} onSaved={vi.fn()} />)
@@ -128,31 +130,24 @@ it('protects an unsaved amendment against page unload', async () => {
   const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); expect(event.defaultPrevented).toBe(true)
 })
 it('refreshes patient detail from the server after initial registration', async () => {
-  await render(<PatientDetail id={patient.id} initialPatient={patient} role="ADMIN" onBack={vi.fn()} onChanged={vi.fn()} />)
+  await render(<PatientDetail id={patient.id} initialPatient={patient} user={{ ...doctor, role: 'ADMIN' }} onBack={vi.fn()} onChanged={vi.fn()} />)
   expect(patientsApi.get).not.toHaveBeenCalled(); await click('Refresh patient'); expect(patientsApi.get).toHaveBeenCalledWith(patient.id, expect.any(AbortSignal))
 })
 it('renders semantic patient columns with long identities and a clear empty recovery', async () => {
   vi.mocked(patientsApi.list).mockResolvedValue({ items: [{ ...patient, lastName: 'Very-long-name-'.repeat(12) }], pagination: page.pagination })
-  await render(<Patients role="ADMIN" onAdd={vi.fn()} onSelect={vi.fn()} />)
-  expect(host.querySelectorAll('th[scope="col"]')).toHaveLength(5)
+  await render(<Patients role="ADMIN" onAdd={vi.fn()} onSelect={vi.fn()} onViewAdmission={vi.fn()} />)
+  expect(Array.from(host.querySelectorAll('th[scope="col"]')).map((item) => item.textContent)).toEqual(['Patient', 'Age', 'Status', 'Registered'])
   expect(host.querySelector('tbody')?.textContent).toContain('Very-long-name-'.repeat(12))
   const search = host.querySelector<HTMLInputElement>('[aria-label="Search patients"]')!; search.name = 'search'; await fill('search', 'missing'); await tick()
-  await click('Clear patient filters'); expect(search.value).toBe('')
+  await click('Clear filters'); expect(search.value).toBe('')
 })
-it('stops unused patient lookup requests after a patient is selected', async () => {
-  await render(<PatientPicker selected={patient} onSelect={vi.fn()} />); expect(patientsApi.list).not.toHaveBeenCalled()
-  await render(<PatientPicker selected={null} onSelect={vi.fn()} />); expect(patientsApi.list).toHaveBeenCalledOnce()
-})
-it('confirms booking and gives the next appointment step without exposing clinical data to admin', async () => {
-  await render(<AppointmentDetail id={appointment.id} initialAppointment={appointment} user={{ ...doctor, role: 'ADMIN' }} onBack={vi.fn()} onChanged={vi.fn()} />)
-  expect(host.querySelector('.appointment-detail .notice')?.textContent).toBe('Appointment booked.'); expect(host.textContent).toContain('Confirm the visit before checking')
-  expect(button('Mark no-show').className).toContain('button-danger-quiet'); expect(encountersApi.list).not.toHaveBeenCalled()
-})
-it('resets appointment filters to a fresh first-page query', async () => {
-  await render(<Appointments user={doctor} onBook={vi.fn()} onSelect={vi.fn()} />)
-  await fill('status', 'CANCELLED'); await tick(); await click('Reset appointment filters')
-  expect(appointmentsApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }), expect.any(AbortSignal))
-  expect(vi.mocked(appointmentsApi.list).mock.calls.at(-1)![0]!.status).toBeUndefined()
+it('admits with the room only, sending a time just when staff change it', async () => {
+  const admit = vi.spyOn(admissionsApi, 'admit').mockResolvedValue({ admission: { ...admission, createdAt: admission.admittedAt, updatedAt: admission.admittedAt, rooms: [] } })
+  await render(<AdmitDialog patient={patient} onClose={vi.fn()} onAdmitted={vi.fn()} />)
+  await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }); await tick()
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Enter the room'); expect(admit).not.toHaveBeenCalled()
+  await fill('roomNumber', '  Ward A – Bed 6 '); await click('Save admission')
+  expect(admit).toHaveBeenCalledExactlyOnceWith({ patientId: patient.id, roomNumber: 'Ward A – Bed 6' }, expect.any(String))
 })
 it('clears clinical filters using a fresh bounded server query', async () => {
   await render(<EncounterList user={doctor} revision={0} onSelect={vi.fn()} />)
@@ -160,12 +155,14 @@ it('clears clinical filters using a fresh bounded server query', async () => {
   expect(encountersApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, limit: 20 }), expect.any(AbortSignal))
   expect(vi.mocked(encountersApi.list).mock.calls.at(-1)![0]!.status).toBeUndefined()
 })
-it('recovers cancelled linked creation through discovery and opens a record created elsewhere', async () => {
-  await render(<Records user={doctor} context={{ kind: 'appointment', appointment: eligibleAppointment }} onBack={vi.fn()} onChoosePatient={vi.fn()} />)
-  await click('Cancel'); expect(button('Start clinical encounter')).toBeDefined()
+it('cancels a new record without creating it and opens a record created elsewhere on the same admission', async () => {
+  const create = vi.spyOn(encountersApi, 'create'); vi.spyOn(encountersApi, 'medications').mockResolvedValue({ items: [], pagination: { page: 1, limit: 100, total: 0, totalPages: 0 } })
+  await render(<Records user={doctor} context={{ kind: 'admission', admission }} onBack={vi.fn()} onOpenPatient={vi.fn()} />)
+  await click('New clinical record'); await click('Cancel'); expect(create).not.toHaveBeenCalled(); expect(host.querySelector('[role="dialog"]')).toBeNull()
   vi.mocked(encountersApi.list).mockResolvedValue({ items: [finalized], pagination: page.pagination })
   vi.spyOn(encountersApi, 'get').mockResolvedValue({ encounter: finalized })
-  await click('Refresh linked record'); await click('Open clinical record')
+  await click('Refresh clinical records')
+  await act(async () => Array.from(host.querySelectorAll<HTMLButtonElement>('.clinical-open')).find((item) => item.textContent?.includes(finalized.reference))!.click()); await tick()
   expect(host.textContent).toContain('Original finalized record'); expect(host.querySelector('form')).toBeNull()
 })
 it('keeps a failed sign-out visible and prevents duplicate pending sign-out calls', async () => {

@@ -1,5 +1,5 @@
 import { authApi, type StaffUser } from '../../api/auth'
-import { ApiError, onSessionInvalidated } from '../../api/client'
+import { ApiError, onPasswordChangeRequired, onSessionInvalidated } from '../../api/client'
 
 export type AuthState =
   | { status: 'loading'; user: null }
@@ -9,6 +9,7 @@ export type AuthState =
 
 // Only the calls the store makes; the password change is made by its own dialog.
 type AuthStoreApi = Pick<typeof authApi, 'me' | 'login' | 'csrf' | 'logout' | 'logoutAll'>
+export const SESSION_ENDED = 'Your session has ended. Sign in again to continue.'
 export function createAuthStore(api: AuthStoreApi = authApi) {
   let state: AuthState = { status: 'loading', user: null }
   let operation = 0
@@ -16,7 +17,17 @@ export function createAuthStore(api: AuthStoreApi = authApi) {
   const listeners = new Set<() => void>()
   const set = (next: AuthState) => { state = next; listeners.forEach((listener) => listener()) }
   const invalidate = () => { operation += 1; set({ status: 'unauthenticated', user: null }) }
-  const unsubscribe = onSessionInvalidated(invalidate)
+  // A signed-in session that ended by itself (expired, or ended by an administrator) explains why
+  // sign-in is showing; a deliberate sign-out or a first visit shows no notice.
+  const unsubscribeSession = onSessionInvalidated(() => {
+    const ended = state.status === 'authenticated' && !ending
+    operation += 1
+    set(ended ? { status: 'unauthenticated', user: null, notice: SESSION_ENDED } : { status: 'unauthenticated', user: null })
+  })
+  // A refused route means the account now needs a new password: re-read the identity, which
+  // carries the flag, so the gate replaces the workspace with the change screen.
+  let refresh: () => void = () => {}
+  const unsubscribePassword = onPasswordChangeRequired(() => refresh())
   async function end(all: boolean) {
     if (ending) return ending
     const current = ++operation
@@ -32,7 +43,7 @@ export function createAuthStore(api: AuthStoreApi = authApi) {
     ending = pending
     return pending
   }
-  return {
+  const store = {
     getSnapshot: () => state,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener) } },
     async refreshUser(signal?: AbortSignal) {
@@ -53,11 +64,17 @@ export function createAuthStore(api: AuthStoreApi = authApi) {
       if (current === operation) set({ status: 'authenticated', user })
     },
     // The server has already signed out every session; show sign-in with a confirmation.
-    passwordChanged() { operation += 1; set({ status: 'unauthenticated', user: null, notice: 'Your password was changed and you were signed out everywhere. Sign in with your new password.' }) },
+    passwordChanged(required = false) {
+      operation += 1
+      set({ status: 'unauthenticated', user: null, notice: required ? 'Password changed successfully. Sign in again with your new password.'
+        : 'Your password was changed and you were signed out everywhere. Sign in with your new password.' })
+    },
     logout: () => end(false),
     logoutAll: () => end(true),
-    dispose: unsubscribe,
+    dispose: () => { unsubscribeSession(); unsubscribePassword() },
   }
+  refresh = () => { if (state.status === 'authenticated' && !state.user.mustChangePassword) void store.refreshUser() }
+  return store
 }
 
 export const authStore = createAuthStore()

@@ -23,8 +23,21 @@ operational and customer conditions are closed:
 - the manual autofill, high-contrast, Safari and screen-reader checks;
 - the hospital's acceptance of UTC reporting periods.
 
-See [final release acceptance](final-release-acceptance.md). The sections below are the earlier
-4 November acceptance and its addendum, kept as the historical record.
+See [final release acceptance](final-release-acceptance.md).
+
+**Step 18.1 (first-login security and the installable app)** does not change the decision. It
+adds two things:
+
+- administrator-issued passwords are temporary and must be replaced before any access, enforced by
+  the API;
+- Medicare can optionally be installed, with a static-only service worker.
+
+No P0 or P1 issue was found. Its device checks join the manual conditions: installing on hospital
+devices, iPhone and iPad Add to Home Screen, and the change screen with a screen reader. See the
+addendum.
+
+The sections below are the earlier 4 November acceptance and its addendum, kept as the historical
+record.
 
 ## Q. Final recommendation (summary, 4 November candidate)
 
@@ -252,7 +265,7 @@ Current behaviour: patients are archived, never deleted; appointments keep their
 
 ## Addendum: changes after this acceptance run
 
-The decision above was made on the 4 November candidate. Eight changes followed. Repeat the affected parts of customer acceptance before relying on this report for them.
+The decision above was made on the 4 November candidate. Nine changes followed. Repeat the affected parts of customer acceptance before relying on this report for them.
 
 - **Step 13, notifications frontend:** the Notifications screen is a real inbox with an unread badge, read state, appointment links and administrator broadcasts. It passed 138/138 live checks; see [notification frontend integration](frontend-notification-integration.md).
 - **Step 13.1, mutation idempotency:** patient registration, clinical encounter creation and broadcasts accept an `Idempotency-Key`, and the frontend sends one for every submission. A resent request within 24 hours returns the original result instead of writing again. Migration `20261104120000_mutation_idempotency` adds one table; nine migrations now deploy. In Chrome, one dropped response followed by an automatic browser resend, and two dropped responses followed by a deliberate retry, each stored exactly one patient, broadcast or walk-in draft (43/43 live checks). See [mutation idempotency](idempotency.md).
@@ -299,4 +312,24 @@ The decision above was made on the 4 November candidate. Eight changes followed.
     - the WebKit/CSP statement above is corrected.
   - **Still unverified:** Safari, stock Firefox, screen readers, Windows high contrast and saved-password autofill.
   - **Automated totals:** unchanged at 2,095 tests across 64 files.
+- **Step 18.1, first-login security and the installable app:** see [first-login security](first-login-security.md) and [installing Medicare](pwa-installation.md).
+  - **Temporary passwords:**
+    - every administrator-issued password (creation, reset, a pending account's first password) is temporary (`StaffUser.mustChangePassword`);
+    - the API refuses every route except identity, CSRF, the password change and sign-out with `403 PASSWORD_CHANGE_REQUIRED` until a personal password is chosen;
+    - the change clears the flag atomically with session revocation;
+    - the browser shows only a "Change your temporary password" screen, with no skip.
+  - **Migration:** `20261107090000_staff_temporary_password` defaults existing accounts to `false`, so their passwords keep working. Twelve migrations now deploy.
+  - **Forgotten passwords:** "Forgot your password?" gives contact-your-administrator guidance and sends nothing. Recovery is administrator-assisted.
+  - **Installable app:**
+    - a manifest and brand icons;
+    - a service worker that caches only static release files, never API data, with no background sync or push;
+    - a connection-required screen that covers the workspace and dialogs offline and recovers on reconnection;
+    - update notices that never reload over an open form;
+    - an optional install offer once, after the first personal sign-in, plus a manual menu action and iPhone/iPad steps.
+  - **Fixed during acceptance:**
+    - the offline screen sat below open dialogs (now above them);
+    - the build plugin mishandled an absolute output directory;
+    - reconnection depended on the browser's online event (now also re-checks every 15 seconds).
+  - **Live checks:** 115/115 on the production build (Chrome 157, Edge 157 and the Firefox engine). Chrome and Edge reported Medicare installable. A real OS-level install and Safari remain manual checks.
+  - **Automated totals:** 2,142 tests across 68 files (843 client, 509 server unit, 790 database). Install, Prisma generate/validate, typecheck, lint, build and `git diff --check` pass.
 

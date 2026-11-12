@@ -1,14 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CalendarDays } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import { notificationsApi, type InboxNotification } from '../../api/notifications'
 import { Dialog } from '../../components/ui/Dialog'
-import { displayTime } from '../appointments/appointment-time'
+import { displayTime } from '../../lib/time'
 import { NotificationFeedback } from './NotificationFeedback'
 import { appointmentTarget, typeLabels } from './notification-utils'
 
-export function NotificationDetail({ notification, onClose, onRead, onOpenAppointment }: {
-  notification: InboxNotification; onClose: () => void; onRead: (notification: InboxNotification) => void; onOpenAppointment: (id: string) => void
+export function NotificationDetail({ notification, onClose, onRead }: {
+  notification: InboxNotification; onClose: () => void; onRead: (notification: InboxNotification) => void
 }) {
   const [current, setCurrent] = useState(notification), [marking, setMarking] = useState(false)
   const [failure, setFailure] = useState<{ error: unknown; during: 'read' | 'load' }>()
@@ -52,11 +51,11 @@ export function NotificationDetail({ notification, onClose, onRead, onOpenAppoin
       {marking && <p role="status" className="loading-note">Marking as read…</p>}
       {failure?.during === 'read' && <NotificationFeedback error={failure.error} mutation="read" />}
       {failure?.during === 'load' && <p role="status" className="notification-note">The latest status could not be loaded. These details are from your inbox list.</p>}
+      {target && <p className="notification-note">This notice was about an appointment. Appointments are no longer used, so there is nothing to open.</p>}
     </div>}
     <div className="modal-footer">
       {failure?.during === 'read' && !missing && !current.readAt && <button type="button" className="button button-ghost" disabled={marking} onClick={() => void markRead()}>Mark as read</button>}
       <button type="button" className="button button-ghost" onClick={onClose}>Close</button>
-      {!missing && target && <button type="button" className="button button-primary" onClick={() => onOpenAppointment(target)}><CalendarDays size={17} aria-hidden="true" />View appointment</button>}
     </div>
   </Dialog>
 }

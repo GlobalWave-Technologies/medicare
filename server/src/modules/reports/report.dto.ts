@@ -1,4 +1,3 @@
-import type { AppointmentStatus } from '../../generated/prisma/client.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { MAX_BUCKETS, type ReportRange, type ReportBucket } from './report.validation.js'
 
@@ -25,15 +24,4 @@ export function buildTimeBuckets(range: ReportRange) {
     else cursor.setUTCDate(cursor.getUTCDate() + (range.bucket === 'week' ? 7 : 1))
   }
   return result
-}
-export const emptyAppointmentCounts = () => ({ scheduled: 0, confirmed: 0, checkedIn: 0, completed: 0, cancelled: 0, noShow: 0 })
-export const appointmentStatusField = {
-  SCHEDULED: 'scheduled', CONFIRMED: 'confirmed', CHECKED_IN: 'checkedIn', COMPLETED: 'completed', CANCELLED: 'cancelled', NO_SHOW: 'noShow',
-} as const satisfies Record<AppointmentStatus, keyof ReturnType<typeof emptyAppointmentCounts>>
-export function appointmentSummary(counts: ReturnType<typeof emptyAppointmentCounts>) {
-  const totalAppointments = countNumber(Object.values(counts).reduce((total, count) => total + count, 0))
-  const rate = (value: number) => totalAppointments ? Math.round(value / totalAppointments * 10000) / 100 : 0
-  return { totalAppointments, scheduled: counts.scheduled, confirmed: counts.confirmed, checkedIn: counts.checkedIn,
-    completed: counts.completed, cancelled: counts.cancelled, noShow: counts.noShow,
-    cancellationRate: rate(counts.cancelled), noShowRate: rate(counts.noShow) }
 }

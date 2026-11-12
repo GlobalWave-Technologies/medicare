@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { medicareServiceWorker } from './pwa/build.ts'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), medicareServiceWorker()],
 
   server: {
     port: 5173,

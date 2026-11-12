@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { authApi } from '../src/api/auth'
 import { ApiError, authErrorMessage, mutation, onSessionInvalidated, request, resetApiSession } from '../src/api/client'
 
-const user = { id: 'synthetic-id', staffNumber: 'STF-TESTADMIN', firstName: 'Test', lastName: 'Staff', email: 'staff@example.test', role: 'ADMIN', status: 'ACTIVE' }
+const user = { id: 'synthetic-id', staffNumber: 'STF-TESTADMIN', firstName: 'Test', lastName: 'Staff', email: 'staff@example.test', role: 'ADMIN', status: 'ACTIVE', mustChangePassword: false }
 const token = 'a'.repeat(64)
 const response = (data: unknown, status = 200, headers?: HeadersInit) => new Response(JSON.stringify(status < 400 ? { success: true, data } : { success: false, error: data }), { status, headers })
 const fetcher = vi.fn<typeof fetch>()

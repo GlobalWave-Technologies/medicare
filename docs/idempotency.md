@@ -34,21 +34,24 @@ Clients send an opaque `Idempotency-Key` request header:
 
 | Operation | Endpoint | Scope |
 |---|---|---|
-| `PATIENT_CREATE` | `POST /api/v1/patients` | Signed-in Admin or Records Officer |
+| `PATIENT_CREATE` | `POST /api/v1/patients` | Signed-in Admin, Records Officer or Medical Officer |
 | `NOTIFICATION_BROADCAST` | `POST /api/v1/notifications/broadcast` | Signed-in Admin |
-| `ENCOUNTER_CREATE` | `POST /api/v1/encounters`, linked or walk-in | Signed-in Doctor in Charge |
+| `ENCOUNTER_CREATE` | `POST /api/v1/encounters` (on a current admission) | Signed-in Medical Officer |
+| `ADMISSION_CREATE` | `POST /api/v1/admissions` (Phase 19A) | Signed-in Admin, Records Officer or Medical Officer |
 
-Encounter creation is keyed uniformly. For a linked appointment, a replay returns
-the encounter the same request created. Any other request for that appointment,
-keyed or not, still receives `409 APPOINTMENT_ALREADY_HAS_ENCOUNTER`, and the
-database unique key is unchanged.
+A replayed admission returns the stay the same request created. Any other admission of a patient
+who is already admitted, keyed or not, still receives `409 PATIENT_ALREADY_ADMITTED`, and the
+database's one-current-stay index is unchanged.
 
-Other creates are not keyed:
+Other writes are not keyed:
 
-- **Appointment creation:** resent bookings already fail the overlap exclusion
-  constraints, so no duplicate row is stored. The user sees a conflict message that
-  advises refreshing the schedule.
+- **Room changes and discharges:** a resent request is refused (`ROOM_UNCHANGED`,
+  `ADMISSION_ALREADY_DISCHARGED`), so nothing is written twice. The dialogs ask staff to check the
+  patient record when an outcome could not be confirmed.
 - **Amendments:** an identical amendment is rejected.
+- **Medication catalog additions:** a resent addition is refused as a duplicate name
+  (`MEDICATION_ALREADY_EXISTS`), so no second entry is ever created.
+- **Appointments** were retired in Phase 19A.
 
 ## Staff creation (Step 17)
 
@@ -81,8 +84,11 @@ by the raw key. That input is what the service writes after validation:
 - **Patient:** trimmed names, an empty middle name as `null`, a normalized phone
   number, and absent optional fields as `null`.
 - **Broadcast:** trimmed title and message, and the exact audience enum.
-- **Encounter:** timestamps compared as instants (`10:00+01:00` equals `09:00Z`),
-  complaints and diagnoses in entry order, and absent text as `null`.
+- **Encounter:** the admission, timestamps compared as instants (`10:00+01:00` equals
+  `09:00Z`), complaints, diagnoses and medication orders in entry order, and absent text as
+  `null`. An omitted room (the admission's room is used) differs from an explicit `null`.
+- **Admission:** the patient, the trimmed room and the admission time as an instant, or `null`
+  when it was omitted.
 
 Keys are sorted and undefined values dropped before hashing, so JSON property order
 does not matter. The raw key is never stored, so a stored fingerprint cannot be
@@ -106,11 +112,13 @@ re-reads the resource:
 
 - **Broadcasts:** content and deliveries are immutable, so the replay is identical
   to the original, including `recipientCount`.
-- **Patients and encounters:** the replay shows their current state.
+- **Patients, admissions and encounters:** the replay shows their current state (a replayed
+  admission may since have changed room or been discharged).
 
 A replay runs before business checks. A resent registration returns its patient
 instead of `POSSIBLE_DUPLICATE_PATIENT`. A resent encounter is returned even if its
-patient was archived since. A resent broadcast is returned even if the audience has
+patient was archived since. A resent admission returns its stay instead of
+`PATIENT_ALREADY_ADMITTED`. A resent broadcast is returned even if the audience has
 changed since.
 
 Only committed successes are recorded:
@@ -118,14 +126,14 @@ Only committed successes are recorded:
 - **Not recorded:**
   - validation, authentication, authorization and CSRF failures;
   - business-rule refusals (`POSSIBLE_DUPLICATE_PATIENT`, `PATIENT_ARCHIVED`,
-    `NO_NOTIFICATION_RECIPIENTS`, `APPOINTMENT_ALREADY_HAS_ENCOUNTER` and others);
+    `NO_NOTIFICATION_RECIPIENTS`, `PATIENT_ALREADY_ADMITTED`, `ADMISSION_NOT_CURRENT` and others);
   - server errors.
 - **Consequence:** a corrected or deliberate later attempt with the same key runs
   normally.
 
 A replay writes no audit event. The original `PATIENT_CREATED`,
-`NOTIFICATION_BROADCAST_CREATED` or `MEDICAL_RECORD_CREATED` remains the only
-event. A replay returns the caller's own just-created resource, so it also records
+`NOTIFICATION_BROADCAST_CREATED`, `MEDICAL_RECORD_CREATED`, `PATIENT_ADMITTED` or
+`PATIENT_READMITTED` remains the only event. A replay returns the caller's own just-created resource, so it also records
 no `*_VIEWED` event.
 
 ## Transactions and concurrency
@@ -172,7 +180,11 @@ Migration `20261104120000_mutation_idempotency` adds:
 - **Trigger:** rejects `UPDATE`; records are written once and only deleted on
   expiry.
 
-The table holds no request body, response body, demographics, clinical text,
+Phase 19A (`20261111090100_admissions_discharge_medications`) adds a unique `admissionId`
+foreign key and the `ADMISSION_CREATE` operation, and extends the check that the populated key
+matches the operation.
+
+The table holds no request body, response body, demographics, room, clinical text,
 broadcast text or raw key. Existing tables and the previous eight migrations are
 unchanged, apart from Prisma back-relations that need no SQL.
 
@@ -196,8 +208,8 @@ transport never generates a key and never retries. `api/idempotency.ts` provides
 
 - `newIdempotencyKey()`: `crypto.randomUUID()`, falling back to 16 bytes from
   `crypto.getRandomValues` if needed.
-- `submissionKeys()`, used by the patient registration form, the broadcast composer
-  and the clinical draft creation form:
+- `submissionKeys()`, used by the patient registration form, the admit dialog, the broadcast
+  composer and the clinical draft creation form:
   - `key(payload)` returns the current key while the payload is unchanged, and a new
     key as soon as it changes;
   - `settle(error?)` discards the key after success or any definite server answer
@@ -206,7 +218,7 @@ transport never generates a key and never retries. `api/idempotency.ts` provides
 
 Keys live only in component memory and are never written to browser storage.
 Closing the form, reloading or signing out discards them. Patient edits, draft
-saves, amendments, appointment actions and notification read-state writes send no
+saves, amendments, room changes, discharges and notification read-state writes send no
 key.
 
 The careful unconfirmed-save messages are unchanged. Resubmitting the same open form
@@ -265,9 +277,9 @@ never logs a key, digest, payload or resource content.
   request, and the probable-duplicate check still applies.
 - **Patient and encounter replays show current state.** They are not byte-identical
   copies of the original response.
-- **Appointment booking is not keyed.** A resent booking still reports a conflict
-  with the user's own booking instead of replaying it.
+- **Room changes and discharges are not keyed.** A resent one reports that it already
+  happened instead of replaying the original response.
 - **Records restrict deletion.** They reference resources with `RESTRICT`. A future
-  workflow that deletes patients, encounters or notifications must delete their
+  workflow that deletes patients, admissions, encounters or notifications must delete their
   records first.
 - **Pruning is not automatic.** It needs a scheduled job.

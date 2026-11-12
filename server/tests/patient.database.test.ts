@@ -39,7 +39,13 @@ async function seed(overrides: Partial<{ firstName: string; middleName: string |
 }
 function assertDto(value: object) {
   expect(Object.keys(value).sort()).toEqual(['id', 'patientNumber', 'firstName', 'middleName', 'lastName',
-    'dateOfBirth', 'phone', 'archivedAt', 'createdAt', 'updatedAt'].sort())
+    'dateOfBirth', 'phone', 'archivedAt', 'createdAt', 'updatedAt', 'currentAdmission'].sort())
+}
+// A current stay, seeded with its first room as the database requires.
+async function admit(patientId: string, room = 'Ward A - Bed 6') {
+  const at = new Date(Date.now() - 3600000)
+  return db.admission.create({ data: { patientId, roomNumber: room, admittedAt: at, admittedById: actor().staffId,
+    rooms: { create: { roomNumber: room, assignedAt: at, assignedById: actor().staffId } } } })
 }
 async function audit(response: request.Response, action: string, patientId: string, actorId = actor().staffId) {
   const events = await db.auditEvent.findMany({ where: { requestId: response.headers['x-request-id'] } })
@@ -101,9 +107,15 @@ describe('patient authorization', () => {
     expect(restored.body.data.patient).toMatchObject({ id, archivedAt: null })
     await audit(restored, 'PATIENT_REACTIVATED', id, credentials.staffId)
   })
-  it.each(['create', 'update', 'archive', 'reactivate'] as const)('denies doctor %s even with client-supplied administrative claims', async (operation) => {
+  it('allows a Medical Officer to register a patient (no phone needed) and audits it', async () => {
+    const created = await send('post', base, { firstName: 'Synthetic', lastName: `Registered-${randomUUID()}` }, actor('DOCTOR_IN_CHARGE'))
+    expect(created.status).toBe(201)
+    expect(created.body.data.patient).toMatchObject({ phone: null, dateOfBirth: null, currentAdmission: null })
+    await audit(created, 'PATIENT_CREATED', created.body.data.patient.id, actor('DOCTOR_IN_CHARGE').staffId)
+  })
+  it.each(['update', 'archive', 'reactivate'] as const)('denies Medical Officer %s even with client-supplied administrative claims', async (operation) => {
     const patient = await seed()
-    const path = operation === 'create' ? base : `${base}/${patient.id}${operation === 'update' ? '' : `/${operation}`}`
+    const path = `${base}/${patient.id}${operation === 'update' ? '' : `/${operation}`}`
     const response = await send(operation === 'update' ? 'patch' : 'post', `${path}?role=ADMIN`,
       { ...input(), role: 'ADMIN', permission: 'PATIENT_CREATE' }, actor('DOCTOR_IN_CHARGE')).set('X-Role', 'ADMIN')
     expect(response.status).toBe(403)
@@ -117,9 +129,23 @@ describe('patient authorization', () => {
     expect((await send('post', base, input(), credentials)).status).toBe(401)
   })
   it('uses the current role rather than old middleware/client claims', async () => {
-    const credentials = await newActor('ADMIN')
+    const credentials = await newActor('ADMIN'), patient = await seed()
     await db.staffUser.update({ where: { id: credentials.staffId }, data: { role: 'DOCTOR_IN_CHARGE' } })
-    expect((await send('post', base, input(), credentials)).body.error.code).toBe('FORBIDDEN')
+    expect((await send('patch', `${base}/${patient.id}`, { firstName: 'Changed' }, credentials)).body.error.code).toBe('FORBIDDEN')
+  })
+  it('shows the current admission in the list and detail, and only while admitted', async () => {
+    const patient = await seed(), admission = await admit(patient.id, 'Private Room 3')
+    const expected = { id: admission.id, admissionNumber: admission.admissionNumber, roomNumber: 'Private Room 3', admittedAt: admission.admittedAt.toISOString() }
+    expect((await read(`${base}?search=${patient.patientNumber}`)).body.data.items[0].currentAdmission).toEqual(expected)
+    expect((await read(`${base}/${patient.id}`, actor('DOCTOR_IN_CHARGE'))).body.data.patient.currentAdmission).toEqual(expected)
+    const at = new Date()
+    await db.$transaction([
+      db.admissionRoomHistory.updateMany({ where: { admissionId: admission.id, endedAt: null }, data: { endedAt: at } }),
+      db.admission.update({ where: { id: admission.id }, data: { status: 'DISCHARGED', dischargedAt: at, dischargedById: actor('DOCTOR_IN_CHARGE').staffId } }),
+    ])
+    const after = (await read(`${base}/${patient.id}`)).body.data.patient
+    expect(after.currentAdmission).toBeNull()
+    expect(after.archivedAt).toBeNull()
   })
 })
 
@@ -222,6 +248,15 @@ describe('patient list and detail', () => {
       expect([item.firstName, item.middleName ?? '', item.lastName, item.patientNumber].some((field: string) => field.includes(value))).toBe(true)
     }
   })
+  it('finds a patient by full name or by name and patient number, each word matching some field', async () => {
+    const tag = randomUUID().slice(0, 8).toUpperCase()
+    const patient = await seed({ firstName: `Ama${tag}`, middleName: null, lastName: `Mensah${tag}` }), other = await seed({ firstName: `Ama${tag}`, middleName: null, lastName: `Owusu${tag}` })
+    const ids = async (text: string) => (await read(`${base}?search=${encodeURIComponent(text)}`)).body.data.items.map((item: { id: string }) => item.id)
+    expect(await ids(`ama${tag}  mensah${tag}`)).toEqual([patient.id])
+    expect((await ids(`Ama${tag}`)).sort()).toEqual([patient.id, other.id].sort())
+    expect(await ids(`${patient.patientNumber.slice(3, 11)} Mensah${tag}`)).toEqual([patient.id])
+    expect(await ids(`Ama${tag} Nobody${tag}`)).toEqual([])
+  })
   it('excludes archived patients by default and supports archived=true/all', async () => {
     const tag = `ArchiveFilter-${randomUUID()}`
     const active = await seed({ lastName: tag })
@@ -286,6 +321,15 @@ describe('demographic updates and archival history', () => {
       send('patch', `${base}/${patient.id}`, { phone: '+12125550123' })])
     expect(responses.map((response) => response.status)).toEqual([200, 200])
     expect(await db.patient.findUniqueOrThrow({ where: { id: patient.id } })).toMatchObject({ firstName: 'Concurrent', phone: '+12125550123' })
+  })
+  it('refuses to archive a currently admitted patient, in the API and the database', async () => {
+    const patient = await seed()
+    await admit(patient.id)
+    const response = await send('post', `${base}/${patient.id}/archive`)
+    expect([response.status, response.body.error.code]).toEqual([409, 'PATIENT_CURRENTLY_ADMITTED'])
+    await expect(db.patient.update({ where: { id: patient.id }, data: { archivedAt: new Date() } })).rejects.toThrow()
+    expect((await db.patient.findUniqueOrThrow({ where: { id: patient.id } })).archivedAt).toBeNull()
+    expect(await db.auditEvent.count({ where: { entityId: patient.id, action: 'PATIENT_ARCHIVED' } })).toBe(0)
   })
   it('archives idempotently without deleting patient, appointment or encounter history', async () => {
     const patient = await seed()

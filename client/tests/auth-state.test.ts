@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createAuthStore } from '../src/features/auth/auth-store'
+import { createAuthStore, SESSION_ENDED } from '../src/features/auth/auth-store'
 import { ApiError, request, resetApiSession } from '../src/api/client'
 import { allowedView, navItemsByRole, toUiRole } from '../src/app/navigation'
 import type { StaffUser } from '../src/api/auth'
-const user: StaffUser = { id: 'synthetic', firstName: 'Test', lastName: 'Staff', email: 'test@example.test', staffNumber: 'STF-TESTADMIN', role: 'ADMIN', status: 'ACTIVE' }
+const user: StaffUser = { id: 'synthetic', firstName: 'Test', lastName: 'Staff', email: 'test@example.test', staffNumber: 'STF-TESTADMIN', role: 'ADMIN', status: 'ACTIVE', mustChangePassword: false }
 const stores: ReturnType<typeof createAuthStore>[] = []
 function setup() {
   const api = { me: vi.fn().mockResolvedValue({ user }), login: vi.fn().mockResolvedValue({ user }),
@@ -73,6 +73,23 @@ describe('in-memory authentication lifecycle', () => {
     await expect(request('/protected')).rejects.toMatchObject({ status: 401 })
     expect(store.getSnapshot().status).toBe('unauthenticated')
   })
+  it('explains on sign-in when a signed-in session ends by itself, but not on a first visit or a deliberate sign-out', async () => {
+    const { store } = setup(); await store.refreshUser()
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response('{}', { status: 401 })))
+    await expect(request('/protected')).rejects.toMatchObject({ status: 401 })
+    expect(store.getSnapshot()).toEqual({ status: 'unauthenticated', user: null, notice: SESSION_ENDED })
+    expect(SESSION_ENDED).toBe('Your session has ended. Sign in again to continue.')
+    // Already signed out (for example a first visit's restoration): no notice.
+    await expect(request('/protected')).rejects.toMatchObject({ status: 401 })
+    expect(store.getSnapshot()).toEqual({ status: 'unauthenticated', user: null })
+  })
+  it('shows no session-ended notice when the person signs out and the server says the session was already gone', async () => {
+    const { store, api } = setup(); await store.refreshUser()
+    api.logout.mockImplementationOnce(async () => request('/auth/logout', { method: 'POST' }))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response('{}', { status: 401 })))
+    await store.logout()
+    expect(store.getSnapshot()).toEqual({ status: 'unauthenticated', user: null })
+  })
   it('ignores a stale restoration after a later successful login', async () => {
     const { store, api } = setup(); let complete!: (value: { user: StaffUser }) => void
     api.me.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve }))
@@ -88,9 +105,12 @@ describe('in-memory authentication lifecycle', () => {
   })
   it.each(['ADMIN', 'RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const)('derives allowed navigation and landing from backend %s', (role) => {
     const uiRole = toUiRole(role), available = navItemsByRole[uiRole]
-    // Every role has a server dashboard and at least one report it may read.
+    // Every role has a server dashboard; Admin and Records Officers also read reports (Phase 19A).
     expect(available[0]!.label).toBe('Overview'); expect(allowedView(role, 'Overview')).toBe('Overview')
-    expect(allowedView(role, 'Reports')).toBe('Reports')
+    expect(allowedView(role, 'Reports')).toBe(role === 'DOCTOR_IN_CHARGE' ? 'Overview' : 'Reports')
+    expect(available.map((item) => item.label)).toEqual({ ADMIN: ['Overview', 'Patients', 'Staff', 'Activity', 'Medicines', 'Notifications', 'Reports'],
+      RECORDS_OFFICER: ['Overview', 'Patients', 'Notifications', 'Reports'], DOCTOR_IN_CHARGE: ['Overview', 'Patients', 'Medical records', 'Notifications'] }[role])
+    expect(allowedView(role, 'Appointments' as never)).toBe('Overview')
     expect(allowedView(role, 'Staff')).toBe(role === 'ADMIN' ? 'Staff' : 'Overview')
     expect(allowedView(role, 'Medical records')).toBe(role === 'DOCTOR_IN_CHARGE' ? 'Medical records' : 'Overview')
   })
