@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import type { AuditContext, AuthContext } from '../auth/auth.context.js'
 import { assertCurrentActor } from '../auth/security.transaction.js'
-import { assertPermission } from '../../shared/authorization/permissions.js'
+import { assertPermission, type Permission } from '../../shared/authorization/permissions.js'
 import { appendAuditEvent } from '../../shared/audit/audit.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { MedicationRow } from './medication.dto.js'
@@ -12,12 +12,14 @@ export const OPTION_LIMIT = 1000
 const select = { id: true, name: true, active: true, createdAt: true, updatedAt: true } as const
 const notFound = () => new AppError(404, 'MEDICATION_NOT_FOUND', 'Medication not found')
 const alreadyExists = () => new AppError(409, 'MEDICATION_ALREADY_EXISTS', 'A medicine with this name is already in the catalog')
+// Adding never reactivates: only Admin can bring an inactive medicine back.
+const existsInactive = () => new AppError(409, 'MEDICATION_EXISTS_INACTIVE', 'A medicine with this name is already in the catalog but is inactive')
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, '\\$&')
 
-function catalogTransaction<T>(db: PrismaClient, auth: AuthContext, operation: (tx: Prisma.TransactionClient) => Promise<T>) {
+function catalogTransaction<T>(db: PrismaClient, auth: AuthContext, permission: Permission, operation: (tx: Prisma.TransactionClient) => Promise<T>) {
   return db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(1296385106, 1)`
-    assertPermission(await assertCurrentActor(tx, auth), 'MEDICATION_CATALOG_MANAGE')
+    assertPermission(await assertCurrentActor(tx, auth), permission)
     return operation(tx)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10000 })
 }
@@ -42,10 +44,10 @@ export function listMedicationOptions(db: PrismaClient) {
 
 export async function createMedication(db: PrismaClient, auth: AuthContext, context: AuditContext, input: CreateMedicationInput) {
   try {
-    return await catalogTransaction(db, auth, async (tx) => {
+    return await catalogTransaction(db, auth, 'MEDICATION_CATALOG_ADD', async (tx) => {
       // A clear refusal first; the case-insensitive unique index is the final guard for concurrent adds.
-      const [existing] = await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "Medication" WHERE lower("name") = lower(${input.name})`
-      if (existing) throw alreadyExists()
+      const [existing] = await tx.$queryRaw<Array<{ id: string; active: boolean }>>`SELECT "id", "active" FROM "Medication" WHERE lower("name") = lower(${input.name})`
+      if (existing) throw existing.active ? alreadyExists() : existsInactive()
       const value = await tx.medication.create({ data: { name: input.name }, select })
       await appendAuditEvent(tx, { ...context, actorId: auth.principal.id, action: 'MEDICATION_CREATED', entityType: 'MEDICATION',
         entityId: value.id, metadata: { source: 'API' } })
@@ -60,7 +62,7 @@ export async function createMedication(db: PrismaClient, auth: AuthContext, cont
 // Repeating the current state changes nothing and records no second event. Deactivation only hides
 // the medicine from new prescriptions: every order that names it stays as written.
 function setActive(db: PrismaClient, auth: AuthContext, context: AuditContext, id: string, active: boolean) {
-  return catalogTransaction(db, auth, async (tx) => {
+  return catalogTransaction(db, auth, 'MEDICATION_CATALOG_MANAGE', async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "Medication" WHERE "id" = ${id}::uuid FOR UPDATE`
     const current = await tx.medication.findUnique({ where: { id }, select })
     if (!current) throw notFound()

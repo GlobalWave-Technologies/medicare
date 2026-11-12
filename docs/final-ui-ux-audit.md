@@ -141,7 +141,7 @@ appointment references on old clinical records and notifications are still shown
 | Room assigned during admission | Yes: the room is part of admitting |
 | Room can change | Yes: **Change room** on the patient record, kept in room history |
 | Medication dropdown restored | Yes: searchable list from the catalog |
-| Medication list manageable | Yes: Administrators add, deactivate and reactivate medicines |
+| Medication list manageable | Yes: Administrators add, deactivate and reactivate medicines; since Phase 19F Medical Officers can also add a missing medicine while prescribing |
 | Medications remain in history | Yes, after finalizing and after discharge |
 | Proper discharge exists | Yes, with confirmation, note and a clear block while a draft is open |
 | Discharged patients leave the current list | Yes |

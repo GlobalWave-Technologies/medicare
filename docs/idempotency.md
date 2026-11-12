@@ -50,7 +50,8 @@ Other writes are not keyed:
   patient record when an outcome could not be confirmed.
 - **Amendments:** an identical amendment is rejected.
 - **Medication catalog additions:** a resent addition is refused as a duplicate name
-  (`MEDICATION_ALREADY_EXISTS`), so no second entry is ever created.
+  (`MEDICATION_ALREADY_EXISTS`, or `MEDICATION_EXISTS_INACTIVE` if the entry was deactivated), so
+  no second entry is ever created. The Medical Officer's add dialog then offers the existing entry.
 - **Appointments** were retired in Phase 19A.
 
 ## Staff creation (Step 17)

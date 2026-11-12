@@ -50,6 +50,10 @@ Demonstrate every row with synthetic (made-up) data, never real patients. Mark o
 | Draft orders can be edited and removed; the same medicine twice gives a warning; a deactivated medicine is no longer offered but stays in history | [ ] | [ ] | [ ] |
 | Medication history shows the current admission first and previous admissions separately, with prescriber and date, after discharge too | [ ] | [ ] | [ ] |
 | Only administrators manage the Medication Catalog (add, deactivate, reactivate; no delete); this gives them no access to prescriptions | [ ] | [ ] | [ ] |
+| A Medical Officer whose search finds nothing selects Add “…” to catalog, saves the name and continues the order with the new medicine chosen; complaints, notes, diagnoses and earlier orders on the draft are unchanged | [ ] | [ ] | [ ] |
+| Adding a name already in the list (any capitals) says "This medication already exists in the catalog." and offers the existing entry; an inactive one says to contact an Administrator and is not reactivated | [ ] | [ ] | [ ] |
+| Medical Officers cannot deactivate or reactivate medicines or open the Medication Catalog page; Records Officers cannot add medicines | [ ] | [ ] | [ ] |
+| The add-medicine dialog fits and works by keyboard at 320 px, 375 px, tablet and desktop (focus in the name field, Escape returns to the order form) | [ ] | [ ] | [ ] |
 | No new record can be started for a patient who is not admitted; older records remain readable | [ ] | [ ] | [ ] |
 | Multiple complaints, diagnoses and medications are kept in the order entered | [ ] | [ ] | [ ] |
 | Finalizing makes the original record read-only; it cannot be changed from any screen or a second tab | [ ] | [ ] | [ ] |

@@ -77,7 +77,9 @@ it('chooses with the keyboard and announces the choice', async () => {
 it('says clearly when nothing matches, and Enter then neither chooses nor saves', async () => {
   await render(editor()); await click('Add medication'); await fill('medication-medicine', 'zzz')
   expect(optionNames()).toEqual([]); expect(host.querySelector('.medication-picker-empty')?.textContent).toContain('No medicines match “zzz”')
-  expect(host.querySelector('.medication-picker-empty')?.textContent).toContain('ask an administrator'); expect(status()).toBe('No medicines match “zzz”.')
+  // Phase 19F: a Medical Officer adds a missing medicine instead of asking an administrator.
+  expect(host.querySelector('.medication-picker-empty')?.textContent).not.toContain('administrator'); expect(button('Add “zzz” to catalog')).toBeDefined()
+  expect(status()).toBe('No medicines match “zzz”. To add it, use Add “zzz” to catalog after this field.')
   await press('Enter'); expect(encountersApi.create).not.toHaveBeenCalled(); expect(host.querySelector('.medication-editor')).not.toBeNull()
 })
 it('adds two medicines with their dosing, edits one, removes another, and saves catalog ids only', async () => {

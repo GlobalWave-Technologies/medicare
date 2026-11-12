@@ -60,7 +60,8 @@ or permissions. Staff-administration `requireRole('ADMIN')` remains unchanged.
 | ADMISSION_READ, ADMISSION_CREATE, ADMISSION_UPDATE | Yes | Yes | Yes (Phase 19A) |
 | ADMISSION_DISCHARGE | No | No | Yes (Phase 19A) |
 | MEDICATION_CATALOG_READ | Yes | No | Yes (Phase 19B) |
-| MEDICATION_CATALOG_MANAGE | Yes | No | No (Phase 19B) |
+| MEDICATION_CATALOG_ADD | Yes | No | Yes (Phase 19F: add a missing medicine while prescribing) |
+| MEDICATION_CATALOG_MANAGE | Yes | No | No (Phase 19B: deactivate and reactivate) |
 
 ADMIN manages staff and administrative demographics; that technical authority
 does not imply access to clinical notes. The doctor's future clinical permissions

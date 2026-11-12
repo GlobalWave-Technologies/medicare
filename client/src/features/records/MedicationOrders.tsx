@@ -1,14 +1,18 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
-import { Pencil, Pill, Plus, Trash2 } from 'lucide-react'
+import { Check, Pencil, Pill, Plus, Trash2 } from 'lucide-react'
 import { medicationsApi, type MedicationOption } from '../../api/medications'
+import { AddCatalogMedication } from './AddCatalogMedication'
 import { ClinicalFeedback } from './ClinicalFeedback'
 import { MedicationPicker } from './MedicationPicker'
 import { emptyMedication, frequencyOptions, medicationLimits, medicationSummary, medicationTitle, routeOptions, type MedicationValues } from './clinical-utils'
 
 const OTHER = 'other'
 type Catalog = { items?: MedicationOption[]; error?: unknown }
+type CatalogState = Catalog & { retry: () => void; include: (option: MedicationOption) => void }
+const byName = (a: MedicationOption, b: MedicationOption) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id)
+const withOption = (items: MedicationOption[], option: MedicationOption) => items.some((item) => item.id === option.id) ? items : [...items, option].sort(byName)
 // Active medicines, loaded once while the record editor is open (never stored in the browser).
-function useCatalog() {
+function useCatalog(): CatalogState {
   const [state, setState] = useState<Catalog>({}), [attempt, setAttempt] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
@@ -16,13 +20,20 @@ function useCatalog() {
       (error: unknown) => { if (!controller.signal.aborted) setState({ error }) })
     return () => controller.abort()
   }, [attempt])
-  return { ...state, retry: () => { setState({}); setAttempt((n) => n + 1) } }
+  return { ...state, retry: () => { setState({}); setAttempt((n) => n + 1) },
+    // A medicine just added (or found) is offered at once; the list is then reloaded quietly, without
+    // interrupting the editor, to pick up anything colleagues added meanwhile.
+    include: (option) => {
+      setState((current) => ({ items: withOption(current.items ?? [], option) }))
+      medicationsApi.options().then(({ items }) => setState({ items: withOption(items, option) }), () => undefined)
+    } }
 }
 
-type Props = { orders: MedicationValues[]; nextKey: () => number; onChange: (orders: MedicationValues[]) => void; onPendingChange: (pending: boolean) => void }
+type Props = { orders: MedicationValues[]; nextKey: () => number; onChange: (orders: MedicationValues[]) => void; onPendingChange: (pending: boolean) => void
+  canAddToCatalog?: boolean }
 // Medication orders on a draft: each one is a medicine chosen from the catalog with its dosing.
 // Orders are added, edited and removed here and saved with the draft; finalizing locks them.
-export function MedicationOrders({ orders, nextKey, onChange, onPendingChange }: Props) {
+export function MedicationOrders({ orders, nextKey, onChange, onPendingChange, canAddToCatalog = false }: Props) {
   const catalog = useCatalog()
   const [editing, setEditing] = useState<{ key: number; isNew: boolean } | null>(null)
   const addButton = useRef<HTMLButtonElement>(null), editButtons = useRef(new Map<number, HTMLButtonElement>())
@@ -41,7 +52,7 @@ export function MedicationOrders({ orders, nextKey, onChange, onPendingChange }:
   const current = editing && (editing.isNew ? emptyMedication(editing.key) : orders.find((order) => order.key === editing.key))
   return <section aria-labelledby="clinical-medications" className="medication-orders">
     <h3 id="clinical-medications" tabIndex={-1}>Medications</h3>
-    <p id="medication-help">Choose each medicine from the medication list, then its dose, route and frequency. Orders can be changed until the record is finalized; after that they are permanent.</p>
+    <p id="medication-help">Choose each medicine from the medication list{canAddToCatalog ? ' (a missing medicine can be added to it)' : ''}, then its dose, route and frequency. Orders can be changed until the record is finalized; after that they are permanent.</p>
     {orders.length ? <ol className="medication-order-list" aria-label="Medication orders on this record">{orders.map((order, index) => {
       const title = medicationTitle(order) || 'Medicine not chosen', label = `${title} (order ${index + 1})`
       return <li key={order.key} className={`medication-order-card${editing?.key === order.key ? ' is-editing' : ''}`}>
@@ -61,7 +72,7 @@ export function MedicationOrders({ orders, nextKey, onChange, onPendingChange }:
         </div>
       </li>
     })}</ol> : !editing && <p className="clinical-empty">No medications on this record yet.</p>}
-    {current && editing && <OrderEditor key={editing.key} initial={current} isNew={editing.isNew} catalog={catalog}
+    {current && editing && <OrderEditor key={editing.key} initial={current} isNew={editing.isNew} catalog={catalog} canAddToCatalog={canAddToCatalog}
       others={orders.filter((order) => order.key !== editing.key)}
       onCancel={() => close(editing.isNew ? undefined : editing.key)}
       onSave={(order) => {
@@ -89,14 +100,28 @@ function validateOrder(values: MedicationValues, customRoute: boolean, customFre
   return errors
 }
 
-type EditorProps = { initial: MedicationValues; isNew: boolean; catalog: Catalog & { retry: () => void }; others: MedicationValues[]; onSave: (order: MedicationValues) => void; onCancel: () => void }
-function OrderEditor({ initial, isNew, catalog, others, onSave, onCancel }: EditorProps) {
+type EditorProps = { initial: MedicationValues; isNew: boolean; catalog: CatalogState; canAddToCatalog: boolean; others: MedicationValues[]
+  onSave: (order: MedicationValues) => void; onCancel: () => void }
+function OrderEditor({ initial, isNew, catalog, canAddToCatalog, others, onSave, onCancel }: EditorProps) {
   const id = useId(), picker = useRef<HTMLInputElement>(null), fields = useRef(new Map<string, HTMLElement | null>())
   const [values, setValues] = useState(initial)
   const [customRoute, setCustomRoute] = useState(Boolean(initial.route) && !routeOptions.includes(initial.route))
   const [customFrequency, setCustomFrequency] = useState(Boolean(initial.frequency) && !frequencyOptions.includes(initial.frequency))
   const [errors, setErrors] = useState<Errors>({})
+  // The name being added to the catalog (its dialog is open), and the result once chosen.
+  const [adding, setAdding] = useState<string | null>(null), [added, setAdded] = useState('')
   useEffect(() => { picker.current?.focus() }, [])
+  // Prescribing continues with the order's details. This runs after the closed dialog has handed
+  // focus back (React cleans up a removed component before running new effects), so it wins.
+  const [continueAt, setContinueAt] = useState(0)
+  useEffect(() => { if (continueAt) fields.current.get('strength')?.focus() }, [continueAt])
+  function chosen(option: MedicationOption, created: boolean) {
+    catalog.include(option)
+    set({ medicationId: option.id, medicine: option.name })
+    setErrors((current) => ({ ...current, medicine: undefined }))
+    setAdded(created ? `${option.name} was added to the catalog and chosen for this order.` : `${option.name} was already in the catalog and is now chosen for this order.`)
+    setAdding(null); setContinueAt((count) => count + 1)
+  }
   const inCatalog = catalog.items?.some((option) => option.id === values.medicationId) ?? true
   const duplicate = values.medicationId && others.some((order) => order.medicationId === values.medicationId)
   const set = (patch: Partial<MedicationValues>) => setValues((current) => ({ ...current, ...patch }))
@@ -109,8 +134,10 @@ function OrderEditor({ initial, isNew, catalog, others, onSave, onCancel }: Edit
     if (first) { (first === 'medicine' ? picker.current : fields.current.get(first))?.focus(); return }
     onSave(trimmed)
   }
-  // Enter in a single-line field saves this order rather than the whole draft.
+  // Enter in a single-line field saves this order rather than the whole draft. Keys typed in the
+  // add-to-catalog dialog reach here through React but belong to that dialog.
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.target as Node)) return
     if (event.key === 'Enter' && !event.defaultPrevented && event.target instanceof HTMLInputElement) { event.preventDefault(); save() }
   }
   const field = (key: 'strength' | 'dose' | 'duration', label: string, placeholder: string, required = false) => <label className="medication-field">
@@ -147,13 +174,15 @@ function OrderEditor({ initial, isNew, catalog, others, onSave, onCancel }: Edit
         : <MedicationPicker ref={picker} id={`${id}-medicine`} options={catalog.items} invalid={Boolean(errors.medicine)}
           describedBy={[errors.medicine ? `${id}-medicine-error` : '', `${id}-medicine-help`].filter(Boolean).join(' ')}
           value={values.medicationId ? { id: values.medicationId, name: values.medicine } : null}
-          onChange={(option) => set(option ? { medicationId: option.id, medicine: option.name } : { medicationId: '' })} />}
+          onAddToCatalog={canAddToCatalog ? (name) => { setAdded(''); setAdding(name) } : undefined}
+          onChange={(option) => { setAdded(''); set(option ? { medicationId: option.id, medicine: option.name } : { medicationId: '' }) }} />}
       {errors.medicine && <span id={`${id}-medicine-error`} className="field-error">{errors.medicine}</span>}
       <span id={`${id}-medicine-help`} className="field-helper">
         {!values.medicationId && initial.medicine && !initial.medicationId ? `Entered before the medication list as “${initial.medicine}”. Choose the matching medicine from the list.`
           : values.medicationId && !inCatalog ? 'This medicine is no longer on the medication list. It stays on this draft, but cannot be added again once removed.'
           : 'Type part of the name, then choose it from the list.'}
       </span>
+      {added && <p className="notice medication-added" role="status"><Check size={16} aria-hidden="true" />{added}</p>}
     </div>
     {duplicate && <p className="callout tone-warning medication-duplicate" role="status">{values.medicine} is already ordered on this record. Add it again only for a separate dosing plan.</p>}
     <div className="medication-grid">
@@ -173,5 +202,6 @@ function OrderEditor({ initial, isNew, catalog, others, onSave, onCancel }: Edit
       <button type="button" className="button button-ghost" onClick={onCancel}>Cancel</button>
       <button type="button" className="button button-primary" disabled={!catalog.items} onClick={save}>{isNew ? 'Add to record' : 'Update medication'}</button>
     </div>
+    {adding !== null && <AddCatalogMedication initialName={adding} onClose={() => setAdding(null)} onChosen={chosen} />}
   </div>
 }

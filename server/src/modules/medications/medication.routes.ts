@@ -11,6 +11,8 @@ import { createMedication, deactivateMedication, listMedicationOptions, listMedi
 const commandSchema = z.object({}).strict()
 
 // The medication catalog. Reading it lists names only; prescriptions live in clinical records.
+// Admin and Medical Officers add medicines (Medical Officers while prescribing); only Admin
+// deactivates or reactivates them.
 export function medicationRoutes(db: PrismaClient, origin: string) {
   const router = Router()
   router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next() })
@@ -23,7 +25,7 @@ export function medicationRoutes(db: PrismaClient, origin: string) {
   router.get('/options', requirePermission('MEDICATION_CATALOG_READ'), async (_req, res) => {
     res.json({ success: true, data: { items: (await listMedicationOptions(db)).map(toMedicationOption) } })
   })
-  router.post('/', requirePermission('MEDICATION_CATALOG_MANAGE'), async (req, res) => {
+  router.post('/', requirePermission('MEDICATION_CATALOG_ADD'), async (req, res) => {
     const value = await createMedication(db, authContext(req), auditContext(req), createMedicationSchema.parse(req.body))
     res.status(201).json({ success: true, data: { medication: toMedication(value) } })
   })

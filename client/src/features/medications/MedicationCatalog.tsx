@@ -10,8 +10,9 @@ import { useKeyedRead } from '../reports/report-utils'
 import { canManageCatalog, catalogError, catalogStatuses, nameProblem, unconfirmed } from './catalog-utils'
 import './medications.css'
 
-// The medication list Medical Officers prescribe from. Administrators add medicines, and deactivate
-// ones no longer used; nothing is deleted, and past prescriptions are never affected.
+// The medication list Medical Officers prescribe from. Administrators add medicines (Medical Officers
+// can also add a missing one while prescribing), and only administrators deactivate ones no longer
+// used or reactivate them; nothing is deleted, and past prescriptions are never affected.
 export function MedicationCatalog({ role }: { role: BackendRole }) {
   if (!canManageCatalog(role)) return <section className="panel catalog-workspace" aria-labelledby="catalog-restricted-title">
     <h2 id="catalog-restricted-title">Administrator access required</h2><p>The medication list is managed by administrators.</p>
@@ -42,7 +43,7 @@ function CatalogWorkspace() {
       setName(''); setNotice(`${medication.name} added. Medical Officers can now choose it when prescribing.`)
       setSearch(medication.name); setQuery(medication.name); setStatus('all'); setPage(1); reload()
     } catch (caught) {
-      if (caught instanceof ApiError && caught.code === 'MEDICATION_ALREADY_EXISTS') {
+      if (caught instanceof ApiError && (caught.code === 'MEDICATION_ALREADY_EXISTS' || caught.code === 'MEDICATION_EXISTS_INACTIVE')) {
         setNameError(catalogError(caught)); setSearch(name.trim()); setStatus('all'); setPage(1); nameInput.current?.focus()
       } else setNameError(unconfirmed(caught) ? 'Adding the medicine could not be confirmed. Search the list for it before trying again.' : catalogError(caught))
     } finally { setAdding(false) }
@@ -62,7 +63,7 @@ function CatalogWorkspace() {
   return <section className="panel catalog-workspace" aria-labelledby={`${id}-title`} aria-busy={loading}>
     <div className="catalog-header">
       <div><h2 id={`${id}-title`}>Medication list</h2>
-        <p className="form-intro">Medical Officers choose from the active medicines when prescribing. Deactivating a medicine hides it from new prescriptions; medicines already prescribed stay in every patient’s record.</p></div>
+        <p className="form-intro">Medical Officers choose from the active medicines when prescribing, and can add a missing medicine while prescribing. Only administrators deactivate or reactivate medicines. Deactivating a medicine hides it from new prescriptions; medicines already prescribed stay in every patient’s record.</p></div>
     </div>
     <form className="catalog-add" noValidate onSubmit={add} aria-labelledby={`${id}-add`}>
       <h3 id={`${id}-add`}>Add a medicine</h3>

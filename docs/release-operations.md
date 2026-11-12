@@ -477,6 +477,15 @@ Automation could not cover these. Complete them on hospital devices before appro
 - **First sign-in:** a new account and a reset account each reach only the change screen until a
   personal password is chosen.
 
+**Upgrading to the Medical Officer medicine-addition release (Phase 19F):** server and client
+together. There are no migrations, grant changes or new dependencies (the runtime role already has
+`INSERT` on `Medication`). The server adds the `MEDICATION_CATALOG_ADD` permission (Admin and
+Medical Officer) for `POST /api/v1/medications` and a `409 MEDICATION_EXISTS_INACTIVE` answer;
+deactivating and reactivating stay Admin-only. Deploy the server, then publish the new
+`client/dist`. Rolling back means redeploying both previous builds; medicines added meanwhile stay
+in the catalog and can be deactivated by an administrator. See
+[adding a missing medicine](medication-catalog-prescribing.md#adding-a-missing-medicine-while-prescribing).
+
 **Upgrading to the final interface release (Phase 19E):** client-only. There are no migrations,
 grant changes, API changes or new dependencies: publish the new `client/dist` (the API stays as it
 is). Browsers pick up the new build through the usual update notice. Rolling back means publishing the

@@ -11,8 +11,9 @@ admit, room changes with history, the Medical Officer's admission-scoped medical
 medication orders and an atomic discharge that never deletes anything. Appointments have been retired.
 [Medication catalog and prescribing](docs/medication-catalog-prescribing.md) covers the controlled medicine
 list Medical Officers prescribe from (searchable dropdown, strength, dose, route, frequency, duration),
-draft-only editing, permanent finalized orders, medication history by admission and the Admin-only
-Medication Catalog. Prescribing is admission- and clinical-record-based, never appointment-based.
+draft-only editing, permanent finalized orders, medication history by admission and the Admin-managed
+Medication Catalog (Medical Officers can add a missing medicine while prescribing; only administrators
+deactivate or reactivate). Prescribing is admission- and clinical-record-based, never appointment-based.
 The [final UI/UX audit](docs/final-ui-ux-audit.md) describes the live admissions and discharges chart
 on the Overview (counted from the database, refreshed every minute while open), the simplified
 dashboard cards, full-name patient search and the screen-by-screen polish before client testing.

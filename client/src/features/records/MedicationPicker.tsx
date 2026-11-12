@@ -1,18 +1,23 @@
-import { forwardRef, useId, useState, type KeyboardEvent } from 'react'
-import { Check, Search } from 'lucide-react'
+import { forwardRef, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { Check, Plus, Search } from 'lucide-react'
 import type { MedicationOption } from '../../api/medications'
 
 type Props = {
   id: string; options: MedicationOption[]; value: MedicationOption | null; onChange: (value: MedicationOption | null) => void
   invalid?: boolean; describedBy?: string; disabled?: boolean
+  // Offered when nothing matches (Medical Officers): adds the typed medicine to the catalog.
+  onAddToCatalog?: (name: string) => void
 }
 // A searchable medicine list (ARIA combobox with a listbox popup). The catalog is filtered in the
 // browser as the Medical Officer types; nothing is fetched per keystroke. Typing never prescribes a
-// medicine by itself: only choosing an entry from the list does.
-export const MedicationPicker = forwardRef<HTMLInputElement, Props>(function MedicationPicker({ id, options, value, onChange, invalid, describedBy, disabled }, ref) {
+// medicine by itself: only choosing an entry from the list (or adding it to the catalog) does.
+export const MedicationPicker = forwardRef<HTMLInputElement, Props>(function MedicationPicker({ id, options, value, onChange, invalid, describedBy, disabled, onAddToCatalog }, ref) {
   const listId = useId(), statusId = useId()
   const [query, setQuery] = useState(value?.name ?? ''), [open, setOpen] = useState(false), [active, setActive] = useState(0)
-  const needle = query.trim().toLowerCase()
+  // A medicine chosen outside the list (one just added to the catalog) is shown in the field too.
+  const [shown, setShown] = useState(value?.id)
+  if (value?.id !== shown) { setShown(value?.id); if (value) { setQuery(value.name); setOpen(false) } }
+  const typed = query.replace(/\s+/g, ' ').trim(), needle = typed.toLowerCase()
   const matches = !needle || (value && query === value.name) ? options : options.filter((option) => option.name.toLowerCase().includes(needle))
   const current = open && matches.length ? Math.min(active, matches.length - 1) : -1
   const optionId = (index: number) => `${listId}-${index}`
@@ -30,8 +35,16 @@ export const MedicationPicker = forwardRef<HTMLInputElement, Props>(function Med
       if (current >= 0) choose(matches[current]!)
     } else if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false) }
   }
+  // Nothing matches what was typed: said below the field until the text changes, so the add action
+  // stays reachable with Tab after the list closes.
+  const noMatch = Boolean(needle) && !matches.length
+  // The message and add action appear below the field; bring them into view (clear of the record's pinned footer).
+  const emptyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (noMatch) emptyRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [noMatch])
+  const addLabel = typed ? `Add “${typed}” to catalog` : 'Add medication to catalog'
   const announcement = !open ? (value ? `${value.name} selected.` : '') : matches.length
-    ? `${matches.length} ${matches.length === 1 ? 'medicine' : 'medicines'} found. Use the up and down arrow keys to choose.` : `No medicines match “${query.trim()}”.`
+    ? `${matches.length} ${matches.length === 1 ? 'medicine' : 'medicines'} found. Use the up and down arrow keys to choose.`
+    : `${typed ? `No medicines match “${typed}”.` : 'The medication list is empty.'}${onAddToCatalog ? ` To add it, use ${addLabel} after this field.` : ''}`
   return <div className="medication-picker">
     <div className="medication-picker-field">
       <Search size={16} aria-hidden="true" />
@@ -50,7 +63,12 @@ export const MedicationPicker = forwardRef<HTMLInputElement, Props>(function Med
         <span>{option.name}</span>{option.id === value?.id && <Check size={16} aria-label="Currently chosen" />}
       </li>)}
     </ul>
-    {open && !matches.length && <p className="medication-picker-empty">No medicines match “{query.trim()}”. Check the spelling, or ask an administrator to add it to the medication list.</p>}
+    {(noMatch || (open && !options.length)) && <div ref={emptyRef} className="medication-picker-empty">
+      <p>{typed ? <>No medicines match “{typed}”. {onAddToCatalog ? 'Check the spelling, or add it to the catalog.' : 'Check the spelling.'}</> : 'The medication list is empty.'}</p>
+      {onAddToCatalog && <button type="button" className="button button-ghost medication-add-catalog" disabled={disabled}
+        // Choosing with the pointer keeps focus in the field, so closing the dialog returns there.
+        onMouseDown={(event) => event.preventDefault()} onClick={() => onAddToCatalog(typed)}><Plus size={17} aria-hidden="true" /><span>{addLabel}</span></button>}
+    </div>}
     <span id={statusId} className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </div>
 })

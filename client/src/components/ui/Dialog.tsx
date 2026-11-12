@@ -2,6 +2,11 @@ import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from 'react
 import { X } from 'lucide-react'
 
 export type DialogSize = 'compact' | 'standard' | 'wide'
+// Open dialogs, innermost last. A dialog can open another on top of it (adding a medicine from the
+// clinical record editor); only the innermost one handles Escape, Tab and focus. The page stays
+// locked from the first dialog until the last one closes, whatever order they unmount in.
+const openDialogs: HTMLElement[] = []
+let pageOverflow = ''
 export function Dialog({ title, busy = false, onClose, children, kind = 'shared', closeLabel = 'Close dialog', describedBy, size = 'standard' }: {
   title: string; busy?: boolean; onClose: () => void; children: ReactNode; kind?: string; closeLabel?: string; describedBy?: string; size?: DialogSize
 }) {
@@ -19,12 +24,14 @@ export function Dialog({ title, busy = false, onClose, children, kind = 'shared'
     }
     const inert = siblings.map((node) => [node, node.inert] as const)
     inert.forEach(([node]) => { node.inert = true })
-    const overflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    if (!openDialogs.length) { pageOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden' }
+    openDialogs.push(dialog)
+    const innermost = () => openDialogs.at(-1) === dialog
     dialog.focus()
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>('button, input, textarea, select, a[href], [tabindex="0"]'))
       .filter((element) => !element.hasAttribute('disabled') && !element.closest('fieldset[disabled], [hidden]') && element.tabIndex >= 0)
     const keydown = (event: KeyboardEvent) => {
+      if (!innermost()) return
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (!latest.current.busy) latest.current.onClose() }
       if (event.key !== 'Tab') return
       const items = focusable(), first = items[0], last = items.at(-1)
@@ -33,13 +40,15 @@ export function Dialog({ title, busy = false, onClose, children, kind = 'shared'
       if (event.shiftKey && (outside || document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last?.focus() }
       else if (!event.shiftKey && (outside || document.activeElement === last || document.activeElement === dialog)) { event.preventDefault(); first.focus() }
     }
-    const focusin = () => { if (!dialog.contains(document.activeElement)) dialog.focus() }
+    const focusin = () => { if (innermost() && !dialog.contains(document.activeElement)) dialog.focus() }
     document.addEventListener('keydown', keydown)
     document.addEventListener('focusin', focusin)
     return () => {
       document.removeEventListener('keydown', keydown); document.removeEventListener('focusin', focusin)
+      const index = openDialogs.indexOf(dialog)
+      if (index >= 0) openDialogs.splice(index, 1)
       inert.forEach(([node, value]) => { node.inert = value })
-      document.body.style.overflow = overflow
+      if (!openDialogs.length) document.body.style.overflow = pageOverflow
       if (previous !== document.body && previous?.isConnected && !previous.closest('[hidden], [inert]') && !previous.hasAttribute('disabled')) previous.focus()
       else document.querySelector<HTMLElement>('[data-page-title]')?.focus()
     }

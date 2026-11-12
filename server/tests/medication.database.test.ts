@@ -11,7 +11,8 @@ import { isolatedTestEnvironment, testDatabase } from './helpers/database.js'
 import type { StaffRole } from '../src/generated/prisma/client.js'
 
 // Phase 19B: the medication catalog (Admin), prescribing from it (Medical Officer), and the rules
-// that keep prescriptions permanent once a clinical record is finalized.
+// that keep prescriptions permanent once a clinical record is finalized. Phase 19F: Medical Officers
+// may add a missing medicine while prescribing; deactivating and reactivating stay Admin-only.
 const db = testDatabase(), env = isolatedTestEnvironment(), base = '/api/v1/medications'
 type Actor = { id: string; cookie: string; csrf: string }
 const actors = new Map<StaffRole, Actor>()
@@ -22,9 +23,9 @@ const recovered = ['Antacid (Aluminium hydroxide tab)', 'Liver salt', 'Loperamid
   'Cetirizine', 'Hyoscine butylbromide (Buscolex)', 'Vitamin C tab', 'Multivitamin', 'Salbutamol tab', 'Salbutamol inhaler', 'Oral glucose', 'Mebendazole (dewormer)']
 const byName = (names: string[]) => [...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
 
-async function newActor(role: StaffRole): Promise<Actor> {
+async function newActor(role: StaffRole, mustChangePassword = false): Promise<Actor> {
   const user = await db.staffUser.create({ data: { firstName: 'Synthetic', lastName: 'Pharmacology', email: `${randomUUID()}@example.test`,
-    role, status: 'ACTIVE', passwordHash: hash, passwordChangedAt: new Date() } })
+    role, status: 'ACTIVE', passwordHash: hash, passwordChangedAt: new Date(), mustChangePassword } })
   const session = await db.$transaction((tx) => createSession(tx, user.id))
   return { id: user.id, cookie: `medicare_session=${session.token}`, csrf: session.session.csrfToken }
 }
@@ -101,13 +102,34 @@ describe('catalog authorization', () => {
     }
     for (const path of [base, `${base}/options`, `${base}?status=all`]) expect((await read(path, actor('RECORDS_OFFICER'))).body.error.code).toBe('FORBIDDEN')
   })
-  it.each(['RECORDS_OFFICER', 'DOCTOR_IN_CHARGE'] as const)('refuses catalog changes by %s', async (role) => {
+  it('refuses every catalog change by the Records Officer', async () => {
     const medicine = await newMedicine()
-    const before = await db.medication.count()
-    expect((await create(`Refused medicine ${randomUUID()}`, actor(role))).body.error.code).toBe('FORBIDDEN')
-    for (const command of ['deactivate', 'reactivate']) expect((await send('post', `${base}/${medicine.id}/${command}`, {}, actor(role))).status).toBe(403)
+    const before = await db.medication.count(), audits = await db.auditEvent.count()
+    const refused = await create(`Refused medicine ${randomUUID()}`, actor('RECORDS_OFFICER'))
+    expect([refused.status, refused.body.error.code]).toEqual([403, 'FORBIDDEN'])
+    for (const command of ['deactivate', 'reactivate']) expect((await send('post', `${base}/${medicine.id}/${command}`, {}, actor('RECORDS_OFFICER'))).status).toBe(403)
     expect(await db.medication.count()).toBe(before)
+    expect(await db.auditEvent.count()).toBe(audits)
     expect((await db.medication.findUniqueOrThrow({ where: { id: medicine.id } })).active).toBe(true)
+  })
+  it('lets a Medical Officer add a medicine but never deactivate or reactivate one', async () => {
+    const doctor = actor('DOCTOR_IN_CHARGE'), active = await newMedicine('Kept active'), inactive = await newMedicine('Kept inactive')
+    await send('post', `${base}/${inactive.id}/deactivate`, {}, actor('ADMIN'))
+    const audits = await db.auditEvent.count()
+    for (const [medicine, command] of [[active, 'deactivate'], [active, 'reactivate'], [inactive, 'reactivate'], [inactive, 'deactivate']] as const) {
+      const response = await send('post', `${base}/${medicine.id}/${command}`, {}, doctor)
+      expect([response.status, response.body.error.code]).toEqual([403, 'FORBIDDEN'])
+    }
+    expect((await db.medication.findUniqueOrThrow({ where: { id: active.id } })).active).toBe(true)
+    expect((await db.medication.findUniqueOrThrow({ where: { id: inactive.id } })).active).toBe(false)
+    expect(await db.auditEvent.count()).toBe(audits)
+    expect((await create(`Officer medicine ${randomUUID().slice(0, 8)}`, doctor)).status).toBe(201)
+  })
+  it('keeps a temporary-password account out of the catalog until the password is changed', async () => {
+    const temporary = await newActor('DOCTOR_IN_CHARGE', true), name = `Temporary medicine ${randomUUID().slice(0, 8)}`
+    const response = await create(name, temporary)
+    expect([response.status, response.body.error.code]).toEqual([403, 'PASSWORD_CHANGE_REQUIRED'])
+    expect(await db.medication.count({ where: { name } })).toBe(0)
   })
   it('requires CSRF and the trusted origin for catalog changes', async () => {
     const admin = actor('ADMIN'), name = `CSRF medicine ${randomUUID()}`
@@ -138,13 +160,21 @@ describe('catalog administration', () => {
     expect(await db.medication.count()).toBe(before)
     expect(await db.auditEvent.count()).toBe(audits)
   })
-  it('refuses a duplicate of an inactive medicine too', async () => {
+  it('refuses a duplicate of an inactive medicine with its own code, and never reactivates it', async () => {
     const medicine = await newMedicine('Inactive duplicate')
     await send('post', `${base}/${medicine.id}/deactivate`, {}, actor('ADMIN'))
-    expect((await create(medicine.name.toUpperCase())).body.error.code).toBe('MEDICATION_ALREADY_EXISTS')
+    const audits = await db.auditEvent.count()
+    for (const who of [actor('ADMIN'), actor('DOCTOR_IN_CHARGE')]) {
+      const response = await create(medicine.name.toUpperCase(), who)
+      expect([response.status, response.body.error.code]).toEqual([409, 'MEDICATION_EXISTS_INACTIVE'])
+    }
+    expect((await db.medication.findUniqueOrThrow({ where: { id: medicine.id } })).active).toBe(false)
+    expect(await db.medication.count({ where: { name: { equals: medicine.name, mode: 'insensitive' } } })).toBe(1)
+    expect(await db.auditEvent.count()).toBe(audits)
+    expect((await read(`${base}/options`)).body.data.items.map((item: { id: string }) => item.id)).not.toContain(medicine.id)
   })
-  it('creates one entry when two administrators add the same medicine at once', async () => {
-    const second = await newActor('ADMIN'), name = `Concurrent medicine ${randomUUID().slice(0, 8)}`
+  it.each([['two administrators', 'ADMIN'], ['an administrator and a Medical Officer', 'DOCTOR_IN_CHARGE']] as const)('creates one entry when %s add the same medicine at once', async (_label, role) => {
+    const second = await newActor(role), name = `Concurrent medicine ${randomUUID().slice(0, 8)}`
     const results = await Promise.all([create(name), create(name.toLowerCase(), second)])
     expect(results.map((result) => result.status).sort()).toEqual([201, 409])
     expect(await db.medication.count({ where: { name: { equals: name, mode: 'insensitive' } } })).toBe(1)
@@ -191,6 +221,46 @@ describe('catalog administration', () => {
     expect((await list(`search=${encodeURIComponent('50%')}&status=all`)).items.map((item: { name: string }) => item.name)).toEqual([`Gamma 50% ${tag}`])
     expect(await list(`search=${tag}&status=all&limit=2&page=2`)).toMatchObject({ pagination: { page: 2, limit: 2, total: 4, totalPages: 2 } })
     for (const query of ['status=deleted', 'limit=101', 'page=0', 'search=' + 'x'.repeat(101), 'active=true']) expect((await read(`${base}?${query}`, admin)).status).toBe(400)
+  })
+})
+
+describe('adding a medicine while prescribing (Medical Officer)', () => {
+  it('adds a medicine with a tidy name, audited by entry only, and prescribes it straight away', async () => {
+    const doctor = actor('DOCTOR_IN_CHARGE'), tag = randomUUID().slice(0, 8)
+    const response = await create(`  Zinc   sulfate ${tag} `, doctor)
+    expect(response.status).toBe(201)
+    const value = response.body.data.medication
+    expect(value).toMatchObject({ name: `Zinc sulfate ${tag}`, active: true })
+    const events = await db.auditEvent.findMany({ where: { requestId: response.headers['x-request-id'] } })
+    expect(events.map((event) => [event.action, event.entityType, event.entityId, event.actorId, event.metadata]))
+      .toEqual([['MEDICATION_CREATED', 'MEDICATION', value.id, doctor.id, { source: 'API' }]])
+    expect((await read(`${base}/options`, doctor)).body.data.items).toContainEqual({ id: value.id, name: value.name })
+    const { admission } = await admitted(), encounter = await prescribe(admission.id, [order(value.id, { strength: '20 mg' })])
+    expect(encounter.medications.map((item) => [item.medicationId, item.medicine, item.strength])).toEqual([[value.id, value.name, '20 mg']])
+  })
+  it.each(['Paracetamol', 'paracetamol', 'PARACETAMOL', '  paraCETAMOL '])('refuses %j as a duplicate of an active medicine', async (name) => {
+    const before = await db.medication.count(), audits = await db.auditEvent.count()
+    const response = await create(name, actor('DOCTOR_IN_CHARGE'))
+    expect([response.status, response.body.error.code]).toEqual([409, 'MEDICATION_ALREADY_EXISTS'])
+    expect(await db.medication.count()).toBe(before)
+    expect(await db.auditEvent.count()).toBe(audits)
+  })
+  it('validates names the same way as for administrators', async () => {
+    for (const body of [{ name: '' }, { name: 'x'.repeat(201) }, { name: 'Line\nbreak' }, { name: 'Valid', active: false }]) {
+      expect((await send('post', base, body, actor('DOCTOR_IN_CHARGE'))).body.error.code).toBe('VALIDATION_ERROR')
+    }
+  })
+  it('requires CSRF and the trusted origin', async () => {
+    const doctor = actor('DOCTOR_IN_CHARGE'), name = `Officer CSRF medicine ${randomUUID()}`
+    expect((await request(app).post(base).set('Cookie', doctor.cookie).set('Origin', env.CLIENT_ORIGIN).send({ name })).body.error.code).toBe('CSRF_INVALID')
+    expect((await request(app).post(base).set('Cookie', doctor.cookie).set('Origin', 'https://attacker.example').set('X-CSRF-Token', doctor.csrf).send({ name })).status).toBe(403)
+    expect(await db.medication.count({ where: { name } })).toBe(0)
+  })
+  it('re-checks the role on every request: a Medical Officer moved to Records Officer is refused', async () => {
+    const moved = await newActor('DOCTOR_IN_CHARGE'), name = `Moved officer medicine ${randomUUID().slice(0, 8)}`
+    await db.staffUser.update({ where: { id: moved.id }, data: { role: 'RECORDS_OFFICER' } })
+    expect((await create(name, moved)).status).toBe(403)
+    expect(await db.medication.count({ where: { name } })).toBe(0)
   })
 })
 
@@ -351,7 +421,8 @@ describe('medication privacy', () => {
     await send('patch', `/api/v1/encounters/${encounter.id}`, { medications: [order(await catalogId('Loperamide'), { frequency: 'secret-frequency' })] })
     await read(`/api/v1/patients/${patient.id}/medications`)
     await create(`Logged medicine ${randomUUID().slice(0, 6)}`)
-    expect(logs).not.toMatch(/secret-|Loperamide|Logged medicine/)
+    await create(`Officer logged medicine ${randomUUID().slice(0, 6)}`, actor('DOCTOR_IN_CHARGE'))
+    expect(logs).not.toMatch(/secret-|Loperamide|Logged medicine|logged medicine/)
     const metadata = await db.auditEvent.findMany({ where: { OR: [{ entityId: encounter.id }, { entityType: 'MEDICATION' }] }, select: { metadata: true } })
     expect(metadata.length).toBeGreaterThan(0)
     expect(JSON.stringify(metadata)).not.toMatch(/secret-|Loperamide|mg|tablet/)

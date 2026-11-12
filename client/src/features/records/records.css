@@ -60,6 +60,8 @@
 .clinical-form section > h3 + label { margin-top: 10px; }
 .draft-final-guide ul { display: grid; gap: 6px; margin: 0; padding-left: 18px; }
 /* Long clinical forms keep their actions in reach: the footer stays at the bottom of the dialog. */
+/* Whatever is focused or scrolled into view (a field, the medicine search's add action) clears the pinned footer. */
+.modal.clinical-modal { scroll-padding-bottom: 96px; }
 .clinical-form > .modal-footer { position: sticky; bottom: -24px; z-index: 2; margin: 24px -24px -24px; padding: 14px 24px 18px; background: var(--surface-raised); box-shadow: var(--shadow-sticky); }
 .clinical-form h3[id] { scroll-margin-bottom: 96px; }
 @media (max-width: 650px) {
@@ -119,7 +121,25 @@
   color: var(--deep); font-weight: 500; overflow-wrap: anywhere; cursor: pointer; }
 .medication-picker-list li.is-active { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); }
 .medication-picker-list li svg { flex-shrink: 0; color: var(--success); }
-.medication-picker-empty { margin: 6px 0 0; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
+.medication-picker-empty { display: grid; gap: 10px; justify-items: start; margin: 6px 0 0; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
+.medication-picker-empty p { margin: 0; overflow-wrap: anywhere; }
+/* Long medicine names wrap inside the add action instead of widening the form. */
+.medication-add-catalog { max-width: 100%; justify-content: flex-start; text-align: left; }
+.medication-add-catalog span { min-width: 0; overflow-wrap: anywhere; }
+.medication-add-catalog svg { flex-shrink: 0; }
+.medication-added { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 0; padding: 8px 12px; font-size: var(--text-sm); }
+.medication-added svg { flex-shrink: 0; margin-top: 2px; }
+
+/* Adding a missing medicine while prescribing: a compact dialog over the record editor. */
+.medication-add-form { display: grid; gap: 8px; }
+.medication-add-form .modal-lead { margin-bottom: 8px; color: var(--muted); }
+.medication-add-form > label { color: var(--deep); font-size: var(--text-md); font-weight: 600; }
+.medication-add-form .field-error { margin: 0; }
+.medication-use-existing { justify-self: start; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.medication-add-form .modal-footer { margin-top: 16px; }
+@media (max-width: 600px) {
+  .medication-add-catalog, .medication-use-existing { width: 100%; }
+}
 
 /* Medication history grouped by admission and clinical record. */
 .medication-history-section { display: grid; gap: 10px; margin-top: 16px; }

@@ -8,6 +8,7 @@ import { personName } from '../../lib/people'
 import { localTimezone } from '../../lib/time'
 import { ClinicalDialog } from './ClinicalDialog'
 import { ClinicalFeedback } from './ClinicalFeedback'
+import { canAddToCatalog } from '../medications/catalog-utils'
 import { MedicationOrders } from './MedicationOrders'
 import { canEditDraft, clinicalFormValues, clinicalInput, hasClinicalAccess, validateClinical } from './clinical-utils'
 
@@ -19,7 +20,7 @@ export function EncounterForm(props: Props) {
   if (!props.encounter && !props.admission) return null
   return <Editor {...props} />
 }
-function Editor({ patient, admission, encounter, onClose, onSaved }: Props) {
+function Editor({ user, patient, admission, encounter, onClose, onSaved }: Props) {
   const [initial] = useState(() => clinicalFormValues(encounter, admission?.roomNumber ?? '')), [values, setValues] = useState(initial)
   const [error, setError] = useState<unknown>(), [validation, setValidation] = useState<string | null>(null), [busy, setBusy] = useState(false)
   const pending = useRef(false), nextKey = useRef(31), [keys] = useState(submissionKeys)
@@ -83,7 +84,7 @@ function Editor({ patient, admission, encounter, onClose, onSaved }: Props) {
         <section aria-label="Treatment"><h3 id="clinical-treatment" tabIndex={-1}>Treatment</h3>
           <label>Treatment plan<textarea name="treatmentPlan" rows={5} maxLength={20000} aria-describedby="clinical-text-help" value={values.treatmentPlan} onChange={(event) => setValues({ ...values, treatmentPlan: event.target.value })} /></label>
         </section>
-        <MedicationOrders orders={values.medications} nextKey={() => nextKey.current++} onPendingChange={setOrderOpen}
+        <MedicationOrders orders={values.medications} nextKey={() => nextKey.current++} onPendingChange={setOrderOpen} canAddToCatalog={canAddToCatalog(user.role)}
           onChange={(medications) => setValues((current) => ({ ...current, medications }))} />
       </fieldset>
       <div className="modal-footer"><button type="button" className="button button-ghost" disabled={busy} onClick={close}>Cancel</button><button className="button button-primary" disabled={busy}>{busy ? 'Saving draft…' : 'Save draft'}</button></div>
